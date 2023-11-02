@@ -146,6 +146,7 @@ if rank == 0:
 else:
     for global_epoch in range(global_epochs):
         model.fit(train_dataset, epochs=local_epochs, verbose=0)
+        
         comm.send(model.get_weights(), dest=0, tag=global_epoch)
         model.set_weights(comm.recv(source=0, tag=global_epoch))    
         
