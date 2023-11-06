@@ -38,13 +38,13 @@ Connect one time to every worker to confirm the fingerprint of the server.
 
 After this you can run the command
 
-`mpirun -np 4 python mpi_decentralized_assync.py -d dataset`
+`mpirun -np 4 -hostfile hostfile python mpi_decentralized_assync.py -d dataset`
 
-`mpirun -np 4 python mpi_decentralized_sync.py -d dataset`
+`mpirun -np 4 -hostfile hostfile python mpi_decentralized_sync.py -d dataset`
 
-`mpirun -np 4 python mpi_centralized_sync.py -d dataset`
+`mpirun -np 4 -hostfile hostfile python mpi_centralized_sync.py -d dataset`
 
-`mpirun -np 4 python mpi_centralized_assync.py -d dataset`
+`mpirun -np 4 -hostfile hostfile python mpi_centralized_assync.py -d dataset`
 
 inside the `code` folder.
 
