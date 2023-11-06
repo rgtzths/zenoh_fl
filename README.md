@@ -30,7 +30,7 @@ If you want to run the single_host setting you can run
 
 To run on docker you will need to connect to the master container
 
-`docker exec -it --user mpiuser zenoh_fl-master-1 bash`
+`docker exec -it --user mpiuser [master_container_name] bash`
 
 Connect one time to every worker to confirm the fingerprint of the server.
 
