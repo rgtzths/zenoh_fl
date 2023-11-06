@@ -51,6 +51,18 @@ inside the `code` folder.
 To change the hyperparameters please confirm the available options in the files.
 
 
+To run using a single command use `./run-tests.sh` that will run selected tests based on its parametes.
+Usage:
+```
+Usage: ./run-tests.sh 
+   -a async centralized
+   -S sync decentralized
+   -A async decentralized
+   -s sync centralized	
+   -h help
+
+```
+
 ## Results
 
 
