@@ -65,7 +65,7 @@ while getopts "aAsSh" arg; do
         do
         sleep 20
         done
-        ls -l results/mpi-centralized-sync/
+        ls -l results/mpi-decentralized-sync/
 
         kill -2 $COMPOSE_PID
         docker compose down
@@ -74,15 +74,15 @@ while getopts "aAsSh" arg; do
         ;;
     a)
         plog "[RUN] MPI async centralized"
-        export TEST=sync_decentralized
+        export TEST=async_centralized
         bash -c "docker compose up" &
         COMPOSE_PID=$!
 
-        while [ ! -f results/mpi-decentralized-sync/done ]
+        while [ ! -f results/mpi-centralized-async/done ]
         do
         sleep 20
         done
-        ls -l results/mpi-centralized-sync/
+        ls -l results/mpi-centralized-async/
 
         kill -2 $COMPOSE_PID
         docker compose down
@@ -91,7 +91,7 @@ while getopts "aAsSh" arg; do
         ;;
     A)
         plog "[RUN] MPI async decentralized"
-        export TEST=sync_decentralized
+        export TEST=async_decentralized
         bash -c "docker compose up" &
         COMPOSE_PID=$!
 
@@ -100,7 +100,7 @@ while getopts "aAsSh" arg; do
         do
         sleep 20
         done
-        ls -l results/mpi-centralized-sync/
+        ls -l results/mpi-decentralized-async/
 
         kill -2 $COMPOSE_PID
         docker compose down

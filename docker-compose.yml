@@ -17,7 +17,7 @@ services:
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
       - ID=manager
       - TEST=${TEST}
-      - EPOCHS=1500
+      - EPOCHS=100000
     depends_on:
       - worker1
       - worker2
