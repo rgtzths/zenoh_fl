@@ -81,7 +81,7 @@ class ZComm(object):
     def data_cb(self, query):
         ke = f'{query.selector.key_expr}'
         data = ZCommData.deserialize(query.value.payload)
-        print(f'[RANK {self.rank}] Received on {ke} - Data: {data}')
+        # print(f'[RANK {self.rank}] Received on {ke} - Data: {data}')
         self.update_data(data)
         query.reply(Sample(ke, b''))
 
@@ -130,7 +130,7 @@ class ZComm(object):
         expected = 1
         acks = 0
         ke = f"mpi/{dest}/data"
-        print(f'[RANK: {self.rank}] Sending on {ke} - Data: {msg}')
+        # print(f'[RANK: {self.rank}] Sending on {ke} - Data: {msg}')
         while acks < expected:
             replies = self.session.get(ke, zenoh.Queue(), value = msg.serialize())
             for reply in replies:
@@ -207,9 +207,9 @@ model = create_MLP()
 start = time.time()
 comm = ZComm(rank, n_workers)
 
-print(f'[RANK: {rank}] Waiting nodes...')
+logging.debug(f'[RANK: {rank}] Waiting nodes...')
 comm.wait(n_workers+1)
-print(f'[RANK: {rank}] Nodes up!')
+logging.debug(f'[RANK: {rank}] Nodes up!')
 
 # if rank == 0:
 #     data = comm.recv(1, 100)
@@ -249,7 +249,7 @@ if rank == 0:
     data = comm.recv(source=ALL_SRC, tag=1000)
     for k, v in data.items():
         node_weights[k-1] = v
-    print(f'[RANK: {rank}] node_weights: {node_weights}!')
+    # print(f'[RANK: {rank}] node_weights: {node_weights}!')
     
     
     total_size = sum(node_weights)
@@ -257,7 +257,7 @@ if rank == 0:
     node_weights = [weight/total_size for weight in node_weights]
     results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "loads" : []}}
     results["times"]["loads"].append(time.time() - start)
-    print(f'[RANK: {rank}] Results: {results}!')
+    # print(f'[RANK: {rank}] Results: {results}!')
 
 else:
     X_train = np.loadtxt(dataset/("x_train_subset_%d.csv" % rank), delimiter=",", dtype=int)
@@ -271,10 +271,10 @@ else:
     comm.send(dest=0, data=len(X_train), tag=1000)
 
 optimizer = tf.keras.optimizers.SGD(learning_rate=0.00001)
-print(f'[RANK: {rank}] After optimizer!')
+# print(f'[RANK: {rank}] After optimizer!')
 # model.set_weights(comm.bcast(model.get_weights(), root=0))
 model.set_weights(comm.bcast(data=model.get_weights(), root=0, tag=0))
-print(f'[RANK: {rank}] After bcast!')
+# print(f'[RANK: {rank}] After bcast!')
 
 if rank == 0:
     results["times"]["loads"].append(time.time() - start)
@@ -284,14 +284,14 @@ for epoch in range(epochs):
     weights = []
     if rank == 0:
         avg_grads = []
-        for node in range(n_workers):
+        #for node in range(n_workers):
 
-            grads_recv = comm.recv(source=ANY_SRC, tag=epoch)
-            for source, grads in grads_recv.items(): 
-                if not avg_grads:
-                    avg_grads = [grad*node_weights[source-1] for grad in grads]
-                else:
-                    avg_grads = [ avg_grads[i] + grads[i]*node_weights[source-1] for i in range(len(grads))]
+        grads_recv = comm.recv(source=ALL_SRC, tag=epoch)
+        for source, grads in grads_recv.items(): 
+            if not avg_grads:
+                avg_grads = [grad*node_weights[source-1] for grad in grads]
+            else:
+                avg_grads = [ avg_grads[i] + grads[i]*node_weights[source-1] for i in range(len(grads))]
 
             # grads = comm.recv(source=MPI.ANY_SOURCE, tag=epoch, status=status)
             # source = status.Get_source()
@@ -310,13 +310,13 @@ for epoch in range(epochs):
         grads = tape.gradient(loss_value, model.trainable_weights)
 
         #comm.send(grads, dest=0, tag=epoch)
-        comm.send(grads, tag=epoch, dest=0)
+        comm.send(data=grads, tag=epoch, dest=0)
         batch = (batch + 1) % len(train_dataset)
 
     model.set_weights(comm.bcast(data=weights, root=0, tag=0))
 
     if rank == 0 and epoch % 1500 == 0:
-        print("\n End of epoch %d" % epoch)
+        logging.debug("\n End of epoch %d" % epoch)
         predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
         train_f1 = f1_score(y_cv, predictions, average="macro")
         train_mcc = matthews_corrcoef(y_cv, predictions)
@@ -326,7 +326,7 @@ for epoch in range(epochs):
         results["f1"].append(train_f1)
         results["mcc"].append(train_mcc)
         results["times"]["epochs"].append(time.time() - start)
-        print("- val_f1: %f - val_mcc %f - val_acc %f" %(train_f1, train_mcc, train_acc))
+        logging.debug("- val_f1: %f - val_mcc %f - val_acc %f" %(train_f1, train_mcc, train_acc))
 
     
     tf.keras.backend.clear_session()
@@ -335,10 +335,11 @@ for epoch in range(epochs):
 
 if rank==0:
     history = json.dumps(results)
-
+    logging.debug(f'Saving results in {output}')
     f = open( output/"train_history.json", "w")
     f.write(history)
     f.close()
 
     model.save(output/'trained_model.h5')
 
+comm.close()
