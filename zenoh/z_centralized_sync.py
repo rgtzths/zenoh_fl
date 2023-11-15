@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # coding: utf-8
 
-__author__ = 'Rafael Teixeira'
+__author__ = 'Gabriele Baldoni'
 __version__ = '0.1'
-__email__ = 'rafaelgteixeira@ua.pt'
+__email__ = 'gabriele@zettascale.tech'
 __status__ = 'Development'
+
 
 import argparse
 import gc
@@ -14,159 +15,8 @@ import time
 import logging
 import numpy as np
 import tensorflow as tf
-import zenoh
-from zenoh import config, Value, Reliability, Sample, CongestionControl
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
-import pickle
-
-
-ALL_SRC = -1
-ANY_SRC = -2
-
-class ZCommData(object):
-    def __init__(self, src, dest, tag, data):
-        self.src = src
-        self.dest = dest
-        self.tag = tag
-        self.data = data
-
-    def serialize(self):
-        return pickle.dumps(self)
-
-    def deserialize(data):
-        return pickle.loads(data)
-    
-    def __str__(self):
-        return f'SRC: {self.src} DST: {self.dest} TAG: {self.tag}'
-
-
-class ZComm(object):
-    def __init__(self, rank, workers, locator =  None):
-        self.session = self.connect_zenoh(locator)
-        self.rank = rank
-        self.data = {}
-
-        self.ke_live_queryable = f'mpi/{rank}/status'
-        self.ke_data = f'mpi/{rank}/data'
-        self.expected = workers+1
-
-        self.queryable = self.session.declare_queryable(self.ke_data, self.data_cb)
-        self.live_queryable = self.session.declare_queryable(self.ke_live_queryable, self.live_cb)
-
-    def connect_zenoh(self, locator):
-        conf = zenoh.Config()
-        conf.insert_json5(zenoh.config.MODE_KEY, json.dumps("peer"))
-        if locator is not None:
-            conf.insert_json5(zenoh.config.CONNECT_KEY, json.dumps([locator]))
-        zenoh.init_logger()
-        session = zenoh.open(conf)
-        return session
-
-    def close(self):
-        self.queryable.undeclare()
-        self.live_queryable.undeclare()
-        self.session.close()
-
-
-    def update_data(self, zcomdata):
-        src_data = self.data.get(zcomdata.src)
-        if src_data is None:
-            # No data received from this source
-            # creating the inner dict
-            data_dict = {zcomdata.tag: zcomdata.data}
-            self.data.update({zcomdata.src:data_dict})
-        else:
-            src_data.update({zcomdata.tag: zcomdata.data})
-
-    def data_cb(self, query):
-        ke = f'{query.selector.key_expr}'
-        data = ZCommData.deserialize(query.value.payload)
-        # print(f'[RANK {self.rank}] Received on {ke} - Data: {data}')
-        self.update_data(data)
-        query.reply(Sample(ke, b''))
-
-    def live_cb(self, query):
-        data = f'{self.rank}-up'.encode("utf-8")
-        query.reply(Sample(self.ke_live_queryable, data))
-
-
-    def wait(self, expected):
-        for i in range(0, expected):
-            if i == self.rank:
-                continue
-            ke = f'mpi/{i}/status'
-            data = None
-            while data is None:
-                replies = self.session.get(ke, zenoh.Queue())
-                for reply in replies.receiver:
-                    if int(reply.ok.payload.decode("utf-8").split("-")[0]) == i:
-                        data = "up"
-                time.sleep(0.05)
-
-    def recv(self, source, tag):
-        if source == ALL_SRC:
-            return self.recv_from_all(tag)
-        elif source == ANY_SRC:
-            return self.recv_from_any(tag)
-
-        expected = 1
-        acks = 0
-
-        while acks < expected:
-            src_data = self.data.get(source)
-            if src_data is None:
-                time.sleep(0.005)
-                continue
-            tag_data = src_data.get(tag)
-            if tag_data is None:
-                time.sleep(0.005)
-                continue
-            del src_data[tag]
-            acks = 1
-            return {source: tag_data}
-
-    def send(self, dest, data, tag):
-        msg = ZCommData(self.rank, dest, tag, data)
-        expected = 1
-        acks = 0
-        ke = f"mpi/{dest}/data"
-        # print(f'[RANK: {self.rank}] Sending on {ke} - Data: {msg}')
-        while acks < expected:
-            replies = self.session.get(ke, zenoh.Queue(), value = msg.serialize())
-            for reply in replies:
-                try:
-                    if reply.ok is not None:
-                        acks = 1
-                except:
-                    continue
-            
-            time.sleep(0.005)
-
-    def bcast(self, root, data, tag):
-        if self.rank == root:
-            for i in range(0, self.expected):
-                if i == self.rank:
-                    # do not self send
-                    continue
-                self.send(i, data, tag)
-            return data
-        else:
-            recv_data = self.recv(root, tag)
-            return recv_data[root]
-        
-    def recv_from_all(self, tag):
-        data = {}
-        for i in range(0, self.expected):
-            if i == self.rank:
-                # do not recv from self
-                continue
-            data.update(self.recv(i, tag))
-        return data
-
-    def recv_from_any(self, tag):
-        return []
-
-
+from zcomm import ZComm, ALL_SRC, ANY_SRC
 
 def create_MLP():
     model = tf.keras.models.Sequential()
@@ -176,6 +26,8 @@ def create_MLP():
     model.add(tf.keras.layers.Dense(3, activation="softmax"))
 
     return model
+
+logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)
 
 parser = argparse.ArgumentParser(description='Train and test the model')
 parser.add_argument('-e', type=int, help='Epochs number', default=100000)
@@ -207,9 +59,9 @@ model = create_MLP()
 start = time.time()
 comm = ZComm(rank, n_workers)
 
-logging.debug(f'[RANK: {rank}] Waiting nodes...')
+logging.info(f'[RANK: {rank}] Waiting nodes...')
 comm.wait(n_workers+1)
-logging.debug(f'[RANK: {rank}] Nodes up!')
+logging.info(f'[RANK: {rank}] Nodes up!')
 
 # if rank == 0:
 #     data = comm.recv(1, 100)
@@ -316,7 +168,7 @@ for epoch in range(epochs):
     model.set_weights(comm.bcast(data=weights, root=0, tag=0))
 
     if rank == 0 and epoch % 1500 == 0:
-        logging.debug("\n End of epoch %d" % epoch)
+        logging.info("\n End of epoch %d" % epoch)
         predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
         train_f1 = f1_score(y_cv, predictions, average="macro")
         train_mcc = matthews_corrcoef(y_cv, predictions)
@@ -326,7 +178,7 @@ for epoch in range(epochs):
         results["f1"].append(train_f1)
         results["mcc"].append(train_mcc)
         results["times"]["epochs"].append(time.time() - start)
-        logging.debug("- val_f1: %f - val_mcc %f - val_acc %f" %(train_f1, train_mcc, train_acc))
+        logging.info("- val_f1: %f - val_mcc %f - val_acc %f" %(train_f1, train_mcc, train_acc))
 
     
     tf.keras.backend.clear_session()
@@ -335,7 +187,7 @@ for epoch in range(epochs):
 
 if rank==0:
     history = json.dumps(results)
-    logging.debug(f'Saving results in {output}')
+    logging.info(f'Saving results in {output}')
     f = open( output/"train_history.json", "w")
     f.write(history)
     f.close()
