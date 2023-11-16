@@ -37,7 +37,7 @@ status = MPI.Status()
 parser = argparse.ArgumentParser(description='Train and test the model')
 parser.add_argument('--g_epochs', type=int, help='Global epochs number', default=10)
 parser.add_argument('--l_epochs', type=int, help='local epochs number', default=5)
-parser.add_argument('-b', type=int, help='Batch size', default=64)
+parser.add_argument('-b', type=int, help='Batch size', default=1024)
 parser.add_argument('-l', type=float, help='Learning rate', default=0.00001)
 parser.add_argument('-d', type=str, help='Dataset', default="one_hot/")
 parser.add_argument('-o', type=str, help='Output folder', default="results")
@@ -61,8 +61,11 @@ dataset = pathlib.Path(dataset)
 model = create_MLP(learning_rate)
 
 start = time.time()
+buff = bytearray(262144)
+pickle =  MPI.Pickle()
 
 if rank == 0:
+    results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : []}}
     node_weights = [0]*(n_workers)
     X_cv = np.loadtxt(dataset/"x_cv.csv", delimiter=",", dtype=int)
     y_cv = np.loadtxt(dataset/"y_cv.csv", delimiter=",", dtype=int)
@@ -73,51 +76,100 @@ if rank == 0:
     #of examples to create a weighted average of the model weights
     for node in range(n_workers):
         status = MPI.Status()
-        n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
+        comm.Recv(buff, source=MPI.ANY_SOURCE, tag=1000, status=status)
+
+        n_examples = pickle.loads(buff)
+
         node_weights[status.Get_source()-1] = n_examples
     
     total_size = sum(node_weights)
 
     node_weights = [weight/total_size for weight in node_weights]
-    results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "loads" : []}}
-    results["times"]["loads"].append(time.time() - start)
+    results["times"]["sync"].append(time.time() - start)
 
 else:
+    results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
+
     X_train = np.loadtxt(dataset/("x_train_subset_%d.csv" % rank), delimiter=",", dtype=int)
     y_train = np.loadtxt(dataset/("y_train_subset_%d.csv" % rank), delimiter=",", dtype=int)
     y_train = tf.keras.utils.to_categorical(y_train)
 
     train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
 
-    comm.send(len(X_train), dest=0, tag=1000)
+    compr_data = pickle.dumps(len(X_train))
 
-model.set_weights(comm.bcast(model.get_weights(), root=0))
+    comm.Send(compr_data, dest=0, tag=1000)
+
+weights = bytearray(pickle.dumps(model.get_weights()))
+
+comm.Bcast(weights, root=0)
+
+if rank != 0:
+    weights = pickle.loads(weights)
+
+    model.set_weights(weights)
 
 if rank == 0:
-    results["times"]["loads"].append(time.time() - start)
+    results["times"]["sync"].append(time.time() - start)
 
 for global_epoch in range(global_epochs):
     avg_weights = []
+    epoch_start = time.time()
 
     if rank == 0:
-
         print("\nStart of epoch %d" % global_epoch)
-        for node in range(n_workers):
-            weights = comm.recv(source=MPI.ANY_SOURCE, tag=global_epoch, status=status)
-            source = status.Get_source()
 
+        for node in range(n_workers):
+            com_time = time.time()
+            comm.Recv(buff, source=MPI.ANY_SOURCE, tag=global_epoch, status=status)
+            results["times"]["comm_recv"].append(time.time() - com_time)
+            
+            load_time = time.time()
+            weights = pickle.loads(buff)
+            results["times"]["conv_recv"].append(time.time() - load_time)
+
+            source = status.Get_source()
             if not avg_weights:
                 avg_weights = [ weight * node_weights[source-1] for weight in weights]
             else:
                 avg_weights = [ avg_weights[i] + weights[i] * node_weights[source-1] for i in range(len(weights))]
+            
+
+        load_time = time.time()
+        weights = bytearray(pickle.dumps(avg_weights))
+        results["times"]["conv_send"].append(time.time()- load_time)
         
     else:
+        train_time = time.time()
         model.fit(train_dataset, epochs=local_epochs, verbose=0)
-        comm.send(model.get_weights(), dest=0, tag=global_epoch)
+        results["times"]["train"].append(time.time() - train_time)
 
-    model.set_weights(comm.bcast(avg_weights, root=0))
+        load_time = time.time()
+        weights = pickle.dumps(model.get_weights())
+        results["times"]["conv_send"].append(time.time() - load_time)
+        
+        comm_time = time.time()
+        comm.Send(weights, dest=0, tag=global_epoch)
+        results["times"]["comm_send"].append(time.time() - comm_time)
+
+        weights = buff
+
+    com_time = time.time()
+    comm.Bcast(weights, root=0)
 
     if rank == 0:
+        results["times"]["comm_send"].append(time.time() - com_time)
+    else:
+        results["times"]["comm_recv"].append(time.time() - com_time)
+
+        conv_time = time.time()
+        avg_weights = pickle.loads(weights)
+        results["times"]["conv_recv"].append(time.time() - conv_time)
+
+    model.set_weights(avg_weights)
+
+    if rank == 0:
+        results["times"]["epochs"].append(time.time() - epoch_start)
         predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
         train_f1 = f1_score(y_cv, predictions, average="macro")
         train_mcc = matthews_corrcoef(y_cv, predictions)
@@ -126,19 +178,27 @@ for global_epoch in range(global_epochs):
         results["acc"].append(train_acc)
         results["f1"].append(train_f1)
         results["mcc"].append(train_mcc)
-        results["times"]["epochs"].append(time.time() - start)
+        results["times"]["global_times"].append(time.time() - start)
+
         print("- val_f1: %f - val_mcc %f - val_acc %f" %(train_f1, train_mcc, train_acc))
-            
+    else:
+        results["times"]["epochs"].append(time.time() - epoch_start)
 
     tf.keras.backend.clear_session()
     tf.compat.v1.reset_default_graph()
     gc.collect()
 
+history = json.dumps(results)
 if rank==0:
-    history = json.dumps(results)
+    results_dir = output/f"parameter_server"
+    results_dir.mkdir(parents=True, exist_ok=True)
 
-    f = open( output/"train_history.json", "w")
-    f.write(history)
-    f.close()
+else:
+    results_dir = output/f"worker{rank}"
+    results_dir.mkdir(parents=True, exist_ok=True)
 
-    model.save(output/'trained_model.h5')
+f = open(results_dir/"train_history.json", "w")
+f.write(history)
+f.close()
+
+model.save(results_dir/'trained_model.keras')
