@@ -1,0 +1,76 @@
+version: "3.9"
+   
+services:
+  master:
+    hostname: master
+    image: zenoh_fl
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports: 
+      - "22"
+    links: 
+      - worker1
+      - worker2
+      - worker3
+    environment:
+      - OMPI_ALLOW_RUN_AS_ROOT=1
+      - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+      - RANK=0
+      - ID=manager
+      - TEST=${TEST}
+      - EPOCHS=5000
+    depends_on:
+      - worker1
+      - worker2
+      - worker3
+    command: /root/entrypoint.sh
+    # command: ["bash", "-c", "cd code/ && python3 z_centralized_sync.py -d dataset -o /results/mpi-centralized-sync -e 500 -w 1 -r 0"]
+    volumes:
+      - ./results:/results/
+      - ./:/root/code
+
+  worker1: 
+    image: zenoh_fl
+    hostname: worker1
+    environment:
+      - RANK=1
+      - ID=worker-1
+      - OMPI_ALLOW_RUN_AS_ROOT=1
+      - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+      - TEST=${TEST}
+      - EPOCHS=5000
+    command: /root/entrypoint.sh
+    volumes:
+      # - ./results:/results/
+      - ./:/root/code
+    # command: ["bash", "-c", "cd code/ && python3 z_centralized_sync.py -d dataset -o /results/mpi-centralized-sync -e 500 -w 1 -r 1"]
+
+  worker2: 
+    image: zenoh_fl
+    hostname: worker2
+    environment:
+      - RANK=2
+      - ID=worker-2
+      - OMPI_ALLOW_RUN_AS_ROOT=1
+      - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+      - TEST=${TEST}
+      - EPOCHS=5000
+    command: /root/entrypoint.sh
+    volumes:
+      # - ./results:/results/
+      - ./:/root/code
+  worker3: 
+    image: zenoh_fl
+    hostname: worker3
+    environment:
+      - RANK=3
+      - ID=worker-3
+      - OMPI_ALLOW_RUN_AS_ROOT=1
+      - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+      - TEST=${TEST}
+      - EPOCHS=5000
+    command: /root/entrypoint.sh
+    volumes:
+      # - ./results:/results/
+      - ./:/root/code

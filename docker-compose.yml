@@ -2,6 +2,7 @@ version: "3.9"
    
 services:
   master:
+    hostname: master
     build:
       context: .
       dockerfile: Dockerfile
@@ -12,19 +13,39 @@ services:
       - worker2
       - worker3
     environment:
+      - OMPI_ALLOW_RUN_AS_ROOT=1
+      - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
       - ID=manager
+      - TEST=${TEST}
+      - EPOCHS=100000
+    depends_on:
+      - worker1
+      - worker2
+      - worker3
+    command: /root/entrypoint.sh
+    volumes:
+      - ./results:/results/
 
   worker1: 
     build: .
+    hostname: worker1
     environment:
       - ID=worker-1
+      - OMPI_ALLOW_RUN_AS_ROOT=1
+      - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
   worker2: 
     build: .
+    hostname: worker2
     environment:
       - ID=worker-2
+      - OMPI_ALLOW_RUN_AS_ROOT=1
+      - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
   worker3: 
     build: .
+    hostname: worker3
     environment:
       - ID=worker-3
+      - OMPI_ALLOW_RUN_AS_ROOT=1
+      - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
