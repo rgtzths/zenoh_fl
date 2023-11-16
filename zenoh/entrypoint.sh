@@ -12,16 +12,14 @@ case $TEST in
         touch /results/zenoh-centralized-sync/done
         ;;
     async_centralized)
-        echo "Not yet..."
-        # echo "Running centarlized async"
-        # mpirun -np 4 -hostfile hostfile python mpi_centralized_assync.py -d dataset -o /results/mpi-centralized-async -e $EPOCHS
-        # touch /results/mpi-centralized-async/done
+        echo "Running centarlized async"
+        python3 z_centralized_async.py -d  dataset/one_hot_encoding -o /results/zenoh-centralized-async -e $EPOCHS -w 3 -r $RANK
+        touch /results/zenoh-centralized-async/done
         ;;
     sync_decentralized)
-        echo "Not yet..."
-        # echo "Running decentarlized sync"
-        # mpirun -np 4 -hostfile hostfile python mpi_decentralized_sync.py -d dataset -o /results/mpi-decentralized-sync # $EPOCHS
-        # touch /results/mpi-decentralized-sync/done
+        echo "Running decentarlized sync"
+        python3 z_decentralized_sync.py -d  dataset/one_hot_encoding  -o /results/zenoh-decentralized-sync -w 3 -r $RANK # $EPOCHS
+        touch /results/zenoh-decentralized-sync/done
         ;;
     async_decentralized)
         echo "Not yet..."

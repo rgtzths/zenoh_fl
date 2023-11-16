@@ -39,6 +39,7 @@ while getopts "aAsSh" arg; do
    s)
         plog "[RUN] Zenoh Sync centralized"
         export TEST=sync_centralized
+        export EPOCHS=1500
         bash -c "docker compose up" &
         COMPOSE_PID=$!
 
@@ -49,9 +50,10 @@ while getopts "aAsSh" arg; do
         done
         ls -l results/zenoh-centralized-sync/
 
-        kill -2 $COMPOSE_PID
+        kill -2 $COMPOSE_PID > /dev/null 2>&1
         docker compose down
         unset $TEST
+        unset $EPOCHS
         plog "[DONE] Zenoh Sync centralized"
         ;;
     S)
@@ -67,7 +69,7 @@ while getopts "aAsSh" arg; do
         done
         ls -l results/zenoh-decentralized-sync/
 
-        kill -2 $COMPOSE_PID
+        kill -2 $COMPOSE_PID > /dev/null 2>&1
         docker compose down
         unset $TEST
         plog "[DONE] Zenoh Sync decentralized"
@@ -75,6 +77,7 @@ while getopts "aAsSh" arg; do
     a)
         plog "[RUN] Zenoh async centralized"
         export TEST=async_centralized
+        export EPOCHS=5
         bash -c "docker compose up" &
         COMPOSE_PID=$!
 
@@ -84,27 +87,29 @@ while getopts "aAsSh" arg; do
         done
         ls -l results/zenoh-centralized-async/
 
-        kill -2 $COMPOSE_PID
+        kill -2 $COMPOSE_PID > /dev/null 2>&1
         docker compose down
         unset $TEST
+        unset $EPOCHS
         plog "[DONE] Zenoh async centralized"
         ;;
     A)
         plog "[RUN] Zenoh async decentralized"
-        export TEST=async_decentralized
-        bash -c "docker compose up" &
-        COMPOSE_PID=$!
+      #   export TEST=async_decentralized
+      #   bash -c "docker compose up" &
+      #   COMPOSE_PID=$!
 
 
-        while [ ! -f results/zenoh-decentralized-async/done ]
-        do
-        sleep 20
-        done
-        ls -l results/zenoh-decentralized-async/
+      #   while [ ! -f results/zenoh-decentralized-async/done ]
+      #   do
+      #   sleep 20
+      #   done
+      #   ls -l results/zenoh-decentralized-async/
 
-        kill -2 $COMPOSE_PID
-        docker compose down
-        unset $TEST
+      #   kill -2 $COMPOSE_PID
+      #   docker compose down
+      #   unset $TEST
+        plog "Not yet..."
         plog "[DONE] Zenoh async decentralized"
         ;;
     *)

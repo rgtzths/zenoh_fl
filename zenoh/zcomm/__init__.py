@@ -12,9 +12,13 @@ from zenoh import config, Value, Reliability, Sample, CongestionControl
 import pickle
 import json
 import time
+import logging
 
 ALL_SRC = -1
 ANY_SRC = -2
+ALL_TAG = -1
+ANY_TAG = -2
+
 
 class ZCommData(object):
     def __init__(self, src, dest, tag, data):
@@ -110,13 +114,23 @@ class ZComm(object):
             if src_data is None:
                 time.sleep(0.005)
                 continue
-            tag_data = src_data.get(tag)
-            if tag_data is None:
-                time.sleep(0.005)
-                continue
-            del src_data[tag]
-            acks = 1
-            return {source: tag_data}
+            if tag == ANY_TAG:
+                any_tag_data = {}
+                tags = src_data.keys()
+                for tag in tags:
+                    data = src_data.pop(tag)
+                    any_tag_data.update({(source, tag) : data})
+
+                    return any_tag_data
+            
+            else:
+                tag_data = src_data.get(tag)
+                if tag_data is None:
+                    time.sleep(0.005)
+                    continue
+                del src_data[tag]
+                acks = 1
+                return {(source, tag): tag_data}
 
     def send(self, dest, data, tag):
         msg = ZCommData(self.rank, dest, tag, data)
@@ -145,7 +159,7 @@ class ZComm(object):
             return data
         else:
             recv_data = self.recv(root, tag)
-            return recv_data[root]
+            return recv_data[(root, tag)]
         
     def recv_from_all(self, tag):
         data = {}
@@ -157,4 +171,12 @@ class ZComm(object):
         return data
 
     def recv_from_any(self, tag):
-        return []
+        any_src = None
+        while any_src is None:
+            for (s, d) in self.data.items():
+                if len(d) != 0:
+                    any_src = s
+            time.sleep(0.005)
+
+        # logging.debug(f"Data is {self.data}")
+        return self.recv(any_src, tag)
