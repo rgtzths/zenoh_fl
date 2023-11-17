@@ -42,6 +42,7 @@ parser.add_argument('-l', type=float, help='Learning rate', default=0.00001)
 parser.add_argument('-d', type=str, help='Dataset', default="one_hot/")
 parser.add_argument('-o', type=str, help='Output folder', default="results/decent_async")
 parser.add_argument('-s', type=int, help='Seed for the run', default=42)
+parser.add_argument('-a', type=float, help='Updated bound for the master/worker', default=0.2)
 
 args = parser.parse_args()
 
@@ -51,6 +52,7 @@ batch_size = args.b
 learning_rate = args.l
 dataset = args.d
 output = args.o
+alpha = args.a
 tf.keras.utils.set_random_seed(args.s)
 
 
@@ -145,11 +147,16 @@ if rank == 0:
 
         source = status.Get_source()
         tag = status.Get_tag()
-        local_weights = [local_weights[idx] + (((weight - local_weights[idx]) /2) * node_weights[source-1])
+
+        #Check how to combine here
+        weight_diffs = [ (weight - local_weights[idx])*alpha*node_weights
                          for idx, weight in enumerate(weights)]
         
+        local_weights = [local_weights[idx] + weight
+                         for idx, weight in enumerate(weight_diffs)]
+        
         load_time = time.time()
-        weights = pickle.dumps(local_weights)
+        weights = pickle.dumps(weight_diffs)
         results["times"]["conv_send"].append(time.time() - load_time)
         
         comm_time = time.time()
@@ -192,9 +199,12 @@ else:
         results["times"]["comm_recv"].append(time.time() - com_time)
 
         load_time = time.time()
-        weights = pickle.loads(buff)
+        weight_diffs = pickle.loads(buff)
         results["times"]["conv_recv"].append(time.time() - load_time)
 
+        weights = [weight - weight_diffs[idx]
+                         for idx, weight in enumerate(model.get_weights())]
+        
         model.set_weights(weights)    
         
         results["times"]["epochs"].append(time.time() - epoch_start)

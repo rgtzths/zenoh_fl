@@ -110,6 +110,7 @@ else:
 
 epoch_start = time.time()
 if rank == 0:
+    latest_tag = 0
     for batch in range(total_batches):
         com_time = time.time()
         comm.Recv(buff, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
@@ -122,7 +123,12 @@ if rank == 0:
         source = status.Get_source()
         tag = status.Get_tag()
 
-        grads = [grad*node_weights[source-1] for grad in grads] # Needs to be updated to the correct penalization format
+        if latest_tag < tag+1:
+            latest_tag = tag+1
+
+        behind_penalty = (tag+1 / latest_tag) #The more behind it is the less impact it will have, verry small penalization
+
+        grads = [grad*node_weights[source-1]*behind_penalty for grad in grads] 
 
         optimizer.apply_gradients(zip(grads, model.trainable_weights))
 

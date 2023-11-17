@@ -132,7 +132,8 @@ for batch in range(total_batches):
             if not avg_grads:
                 avg_grads = [grad*node_weights[source-1] for grad in grads]
             else:
-                avg_grads = [ avg_grads[i] + grads[i]*node_weights[source-1] for i in range(len(grads))]
+                for idx, weight in enumerate(grads):
+                    avg_grads[idx] += weight*node_weights[source-1]
         
         optimizer.apply_gradients(zip(avg_grads, model.trainable_weights))
 
