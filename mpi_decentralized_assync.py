@@ -88,9 +88,10 @@ if rank == 0:
 
         node_weights[status.Get_source()-1] = n_examples
     
-    total_n_examples = sum(node_weights)
+    biggest_n_examples = max(node_weights)
 
-    node_weights = [n_examples/total_n_examples for n_examples in node_weights]
+    node_weights = [n_examples/biggest_n_examples for n_examples in node_weights]
+
     results["times"]["sync"].append(time.time() - start)
     weights = bytearray(pickle.dumps(model.get_weights()))
 
@@ -149,7 +150,7 @@ if rank == 0:
         tag = status.Get_tag()
 
         #Check how to combine here
-        weight_diffs = [ (weight - local_weights[idx])*alpha*node_weights
+        weight_diffs = [ (weight - local_weights[idx])*alpha*node_weights[source-1]
                          for idx, weight in enumerate(weights)]
         
         local_weights = [local_weights[idx] + weight
