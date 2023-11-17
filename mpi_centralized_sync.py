@@ -31,12 +31,14 @@ comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 n_workers = comm.Get_size()-1
 status = MPI.Status()
+buff = bytearray(262144)
+pickle =  MPI.Pickle()
 
 parser = argparse.ArgumentParser(description='Train and test the model')
-parser.add_argument('-e', type=int, help='Epochs number', default=1000)
+parser.add_argument('-e', type=int, help='Number of batches', default=10)
 parser.add_argument('-l', type=float, help='Learning rate', default=0.00001)
 parser.add_argument('-d', type=str, help='Dataset', default="one_hot/")
-parser.add_argument('-o', type=str, help='Output folder', default="results")
+parser.add_argument('-o', type=str, help='Output folder', default="results/cent_sync/")
 parser.add_argument('-b', type=int, help='Batch size', default=1024)
 parser.add_argument('-s', type=int, help='Seed for the run', default=42)
 
@@ -55,9 +57,6 @@ dataset = pathlib.Path(dataset)
 
 model = create_MLP()
 start = time.time()
-buff = bytearray(262144)
-pickle =  MPI.Pickle()
-
 
 if rank == 0:
     results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : []}}
@@ -70,18 +69,18 @@ if rank == 0:
     #Get the amount of training examples of each worker and divides it by the total
     #of examples to create a weighted average of the model weights
     for node in range(n_workers):
-
         comm.Recv(buff, source=MPI.ANY_SOURCE, tag=1000, status=status)
-
         n_examples = pickle.loads(buff)
         
         node_weights[status.Get_source()-1] = n_examples
     
-    total_size = sum(node_weights)
-    n_batches = (max(node_weights) // batch_size)+1
+    sum_n_batches = sum(node_weights)
+    total_n_batches = max(node_weights)
+    total_batches = epochs * total_n_batches
 
-    node_weights = [weight/total_size for weight in node_weights]
+    node_weights = [weight/sum_n_batches for weight in node_weights]
     results["times"]["sync"].append(time.time() - start)
+    weights = bytearray(pickle.dumps(model.get_weights()))
 
 else:
     results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
@@ -93,15 +92,16 @@ else:
     train_dataset = list(tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size))
     loss_fn = tf.keras.losses.CategoricalCrossentropy()
 
-    compr_data = pickle.dumps(len(X_train))
-
-    n_batches = (len(X_train) // batch_size)+1
+    compr_data = pickle.dumps(len(train_dataset))
 
     comm.Send(compr_data, dest=0, tag=1000)
 
-optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate)
+    total_n_batches = len(train_dataset)
+    total_batches = epochs * total_n_batches
 
-weights = bytearray(pickle.dumps(model.get_weights()))
+    weights = buff
+
+optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate)
 
 comm.Bcast(weights, root=0)
 
@@ -109,20 +109,18 @@ if rank != 0:
     weights = pickle.loads(weights)
 
     model.set_weights(weights)
-
-if rank == 0:
+else:
     results["times"]["sync"].append(time.time() - start)
 
-batch = 0
 epoch_start = time.time()
-for epoch in range(epochs):
+for batch in range(total_batches):
     weights = []
     if rank == 0:
         avg_grads = []
         for node in range(n_workers):
 
             com_time = time.time()
-            comm.Recv(buff, source=MPI.ANY_SOURCE, tag=epoch, status=status)
+            comm.Recv(buff, source=MPI.ANY_SOURCE, tag=batch, status=status)
             results["times"]["comm_recv"].append(time.time() - com_time)
 
             load_time = time.time()
@@ -137,6 +135,7 @@ for epoch in range(epochs):
                 avg_grads = [ avg_grads[i] + grads[i]*node_weights[source-1] for i in range(len(grads))]
         
         optimizer.apply_gradients(zip(avg_grads, model.trainable_weights))
+
         load_time = time.time()
         weights = bytearray(pickle.dumps(model.get_weights()))
         results["times"]["conv_send"].append(time.time()- load_time)
@@ -144,7 +143,7 @@ for epoch in range(epochs):
     else:
         train_time = time.time()
 
-        x_batch_train, y_batch_train = train_dataset[batch]
+        x_batch_train, y_batch_train = train_dataset[batch % len(train_dataset)]
 
         with tf.GradientTape() as tape:
 
@@ -159,10 +158,9 @@ for epoch in range(epochs):
         results["times"]["conv_send"].append(time.time() - load_time)
         
         comm_time = time.time()
-        comm.Send(grads, dest=0, tag=epoch)
+        comm.Send(grads, dest=0, tag=batch)
         results["times"]["comm_send"].append(time.time() - comm_time)
 
-        batch = (batch + 1) % len(train_dataset)
         weights = buff
 
     com_time = time.time()
@@ -179,11 +177,11 @@ for epoch in range(epochs):
 
         model.set_weights(weights)
 
-    if epoch % n_batches == 0 or epoch == epochs-1:
+    if (batch+1) % total_n_batches == 0:
         if rank == 0:
             results["times"]["epochs"].append(time.time() - epoch_start)
 
-            print(f"\n End of batch {epoch} -> epoch {epoch // n_batches}")
+            print(f"\n End of batch {batch+1} -> epoch {(batch+1) // total_n_batches}")
             predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
             train_f1 = f1_score(y_cv, predictions, average="macro")
             train_mcc = matthews_corrcoef(y_cv, predictions)
@@ -193,16 +191,12 @@ for epoch in range(epochs):
             results["f1"].append(train_f1)
             results["mcc"].append(train_mcc)
             results["times"]["global_times"].append(time.time() - start)
-            print("- val_f1: %f - val_mcc %f - val_acc %f" %(train_f1, train_mcc, train_acc))
+            print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(train_f1, train_mcc, train_acc))
 
         else:
             results["times"]["epochs"].append(time.time() - epoch_start)
 
         epoch_start = time.time()
-
-    tf.keras.backend.clear_session()
-    tf.compat.v1.reset_default_graph()
-    gc.collect()
 
 history = json.dumps(results)
 if rank==0:

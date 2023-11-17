@@ -32,7 +32,8 @@ comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 n_workers = comm.Get_size()-1
 status = MPI.Status()
-
+buff = bytearray(262144)
+pickle =  MPI.Pickle()
 
 parser = argparse.ArgumentParser(description='Train and test the model')
 parser.add_argument('--g_epochs', type=int, help='Global epochs number', default=10)
@@ -40,7 +41,7 @@ parser.add_argument('--l_epochs', type=int, help='local epochs number', default=
 parser.add_argument('-b', type=int, help='Batch size', default=1024)
 parser.add_argument('-l', type=float, help='Learning rate', default=0.00001)
 parser.add_argument('-d', type=str, help='Dataset', default="one_hot/")
-parser.add_argument('-o', type=str, help='Output folder', default="results")
+parser.add_argument('-o', type=str, help='Output folder', default="results/decent_sync")
 parser.add_argument('-s', type=int, help='Seed for the run', default=42)
 
 args = parser.parse_args()
@@ -61,8 +62,6 @@ dataset = pathlib.Path(dataset)
 model = create_MLP(learning_rate)
 
 start = time.time()
-buff = bytearray(262144)
-pickle =  MPI.Pickle()
 
 if rank == 0:
     results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : []}}
@@ -86,6 +85,7 @@ if rank == 0:
 
     node_weights = [weight/total_size for weight in node_weights]
     results["times"]["sync"].append(time.time() - start)
+    weights = bytearray(pickle.dumps(model.get_weights()))
 
 else:
     results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
@@ -99,8 +99,7 @@ else:
     compr_data = pickle.dumps(len(X_train))
 
     comm.Send(compr_data, dest=0, tag=1000)
-
-weights = bytearray(pickle.dumps(model.get_weights()))
+    weights = buff
 
 comm.Bcast(weights, root=0)
 
@@ -108,8 +107,7 @@ if rank != 0:
     weights = pickle.loads(weights)
 
     model.set_weights(weights)
-
-if rank == 0:
+else:
     results["times"]["sync"].append(time.time() - start)
 
 for global_epoch in range(global_epochs):
@@ -117,7 +115,7 @@ for global_epoch in range(global_epochs):
     epoch_start = time.time()
 
     if rank == 0:
-        print("\nStart of epoch %d" % global_epoch)
+        print("\nStart of epoch %d" % (global_epoch+1))
 
         for node in range(n_workers):
             com_time = time.time()
@@ -180,7 +178,7 @@ for global_epoch in range(global_epochs):
         results["mcc"].append(train_mcc)
         results["times"]["global_times"].append(time.time() - start)
 
-        print("- val_f1: %f - val_mcc %f - val_acc %f" %(train_f1, train_mcc, train_acc))
+        print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(train_f1, train_mcc, train_acc))
     else:
         results["times"]["epochs"].append(time.time() - epoch_start)
 

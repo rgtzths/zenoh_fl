@@ -31,15 +31,16 @@ comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 n_workers = comm.Get_size()-1
 status = MPI.Status()
-
+buff = bytearray(262144)
+pickle =  MPI.Pickle()
 
 parser = argparse.ArgumentParser(description='Train and test the model')
 parser.add_argument('--g_epochs', type=int, help='Global epochs number', default=10)
 parser.add_argument('--l_epochs', type=int, help='local epochs number', default=5)
-parser.add_argument('-b', type=int, help='Batch size', default=64)
+parser.add_argument('-b', type=int, help='Batch size', default=1024)
 parser.add_argument('-l', type=float, help='Learning rate', default=0.00001)
 parser.add_argument('-d', type=str, help='Dataset', default="one_hot/")
-parser.add_argument('-o', type=str, help='Output folder', default="results")
+parser.add_argument('-o', type=str, help='Output folder', default="results/decent_async")
 parser.add_argument('-s', type=int, help='Seed for the run', default=42)
 
 args = parser.parse_args()
@@ -68,6 +69,8 @@ weighted average of their contributions.
 '''
 
 if rank == 0:
+    results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : []}}
+
     node_weights = [0]*(n_workers)
     X_cv = np.loadtxt(dataset/"x_cv.csv", delimiter=",", dtype=int)
     y_cv = np.loadtxt(dataset/"y_cv.csv", delimiter=",", dtype=int)
@@ -78,32 +81,43 @@ if rank == 0:
     #of examples to create a weighted average of the model weights
     for node in range(n_workers):
         status = MPI.Status()
-        n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
+        comm.Recv(buff, source=MPI.ANY_SOURCE, tag=1000, status=status)
+        n_examples = pickle.loads(buff)
+
         node_weights[status.Get_source()-1] = n_examples
     
     total_n_examples = sum(node_weights)
 
     node_weights = [n_examples/total_n_examples for n_examples in node_weights]
-    results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "loads" : []}}
-    results["times"]["loads"].append(time.time() - start)
+    results["times"]["sync"].append(time.time() - start)
+    weights = bytearray(pickle.dumps(model.get_weights()))
 
 else:
+    results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
+
     X_train = np.loadtxt(dataset/("x_train_subset_%d.csv" % rank), delimiter=",", dtype=int)
     y_train = np.loadtxt(dataset/("y_train_subset_%d.csv" % rank), delimiter=",", dtype=int)
     y_train = tf.keras.utils.to_categorical(y_train)
 
     train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
 
-    comm.send(len(X_train), dest=0, tag=1000)
+    compr_data = pickle.dumps(len(X_train))
+
+    comm.Send(compr_data, dest=0, tag=1000)
+    weights = buff
+
 
 '''
 Parameter server shares its values so every worker starts from the same point.
 '''
-model.set_weights(comm.bcast(model.get_weights(), root=0))
+comm.Bcast(weights, root=0)
 
+if rank != 0:
+    weights = pickle.loads(weights)
 
-if rank == 0:
-    results["times"]["loads"].append(time.time() - start)
+    model.set_weights(weights)
+else:
+    results["times"]["sync"].append(time.time() - start)
 
 '''
 Training starts.
@@ -112,21 +126,38 @@ The remaining perform training
 '''
 if rank == 0:
     local_weights = model.get_weights()
+    epoch_start = time.time()
+
     for epoch in range(global_epochs*(n_workers)):
         if epoch % n_workers == 0:
 
-            print("\nStart of epoch %d" % (epoch//3))
+            print("\nStart of epoch %d" % (epoch//n_workers+1))
         
         #This needs to be changed to the correct formula
-        weights = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status) 
-        source = status.Get_source()
+        
+        com_time = time.time()
+        comm.Recv(buff, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
+        results["times"]["comm_recv"].append(time.time() - com_time)
 
+        load_time = time.time()
+        weights = pickle.loads(buff)
+        results["times"]["conv_recv"].append(time.time() - load_time)
+
+        source = status.Get_source()
+        tag = status.Get_tag()
         local_weights = [local_weights[idx] + (((weight - local_weights[idx]) /2) * node_weights[source-1])
                          for idx, weight in enumerate(weights)]
-
-        comm.send(local_weights, dest=source,tag=status.Get_tag())
+        
+        load_time = time.time()
+        weights = pickle.dumps(local_weights)
+        results["times"]["conv_send"].append(time.time() - load_time)
+        
+        comm_time = time.time()
+        comm.Send(weights, dest=source, tag=tag)
+        results["times"]["comm_send"].append(time.time() - comm_time)
 
         if epoch % n_workers == n_workers-1:
+            results["times"]["epochs"].append(time.time() - epoch_start)
             model.set_weights(local_weights)
             predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
             train_f1 = f1_score(y_cv, predictions, average="macro")
@@ -136,29 +167,49 @@ if rank == 0:
             results["acc"].append(train_acc)
             results["f1"].append(train_f1)
             results["mcc"].append(train_mcc)
-            results["times"]["epochs"].append(time.time() - start)
-            print("- val_f1: %f - val_mcc %f - val_acc %f" %(train_f1, train_mcc, train_acc))
-        
-        tf.keras.backend.clear_session()
-        tf.compat.v1.reset_default_graph()
-        gc.collect()
-    
+            results["times"]["global_times"].append(time.time() - start)
+            print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(train_f1, train_mcc, train_acc))
+            epoch_start = time.time()
+
 else:
     for global_epoch in range(global_epochs):
+        epoch_start = time.time()
+
+        train_time = time.time()
         model.fit(train_dataset, epochs=local_epochs, verbose=0)
-        
-        comm.send(model.get_weights(), dest=0, tag=global_epoch)
-        model.set_weights(comm.recv(source=0, tag=global_epoch))    
-        
-        tf.keras.backend.clear_session()
-        tf.compat.v1.reset_default_graph()
-        gc.collect()
+        results["times"]["train"].append(time.time() - train_time)
 
+        load_time = time.time()
+        weights = pickle.dumps(model.get_weights())
+        results["times"]["conv_send"].append(time.time() - load_time)
+        
+        comm_time = time.time()
+        comm.Send(weights, dest=0, tag=global_epoch)
+        results["times"]["comm_send"].append(time.time() - comm_time)
+
+        com_time = time.time()
+        comm.Recv(buff, source=0, tag=global_epoch)
+        results["times"]["comm_recv"].append(time.time() - com_time)
+
+        load_time = time.time()
+        weights = pickle.loads(buff)
+        results["times"]["conv_recv"].append(time.time() - load_time)
+
+        model.set_weights(weights)    
+        
+        results["times"]["epochs"].append(time.time() - epoch_start)
+
+history = json.dumps(results)
 if rank==0:
-    history = json.dumps(results)
+    results_dir = output/f"parameter_server"
+    results_dir.mkdir(parents=True, exist_ok=True)
 
-    f = open(output/"train_history.json", "w")
-    f.write(history)
-    f.close()
+else:
+    results_dir = output/f"worker{rank}"
+    results_dir.mkdir(parents=True, exist_ok=True)
 
-    model.save(output/'trained_model.h5')
+f = open(results_dir/"train_history.json", "w")
+f.write(history)
+f.close()
+
+model.save(results_dir/'trained_model.keras')
