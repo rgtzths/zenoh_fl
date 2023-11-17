@@ -58,7 +58,7 @@ dataset = pathlib.Path(dataset)
 model = create_MLP()
 start = time.time()
 comm = ZComm(rank, n_workers)
-
+logging.info(f'[RANK: {rank}] Epochs: {epochs}')
 logging.info(f'[RANK: {rank}] Waiting nodes...')
 comm.wait(n_workers+1)
 logging.info(f'[RANK: {rank}] Nodes up!')
@@ -118,6 +118,7 @@ for epoch in range(epochs):
 
         grads_recv = comm.recv(source=ALL_SRC, tag=epoch)
         for (source, _tag), grads in grads_recv.items(): 
+            # logging.debug(f'[RANK: {rank}] Data from {source, _tag}')
             if not avg_grads:
                 avg_grads = [grad*node_weights[source-1] for grad in grads]
             else:
@@ -141,12 +142,14 @@ for epoch in range(epochs):
 
         #comm.send(grads, dest=0, tag=epoch)
         comm.send(data=grads, tag=epoch, dest=0)
+        # logging.debug(f'[RANK: {rank}] sent to {(0, epoch)}')
         batch = (batch + 1) % len(train_dataset)
 
     model.set_weights(comm.bcast(data=weights, root=0, tag=0))
 
+    # logging.debug(f'[RANK: {rank}] Done epoch {epoch}')
     if rank == 0 and epoch % 1500 == 0:
-        logging.info("\n End of epoch %d" % epoch)
+        logging.info("End of epoch %d" % epoch)
         predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
         train_f1 = f1_score(y_cv, predictions, average="macro")
         train_mcc = matthews_corrcoef(y_cv, predictions)

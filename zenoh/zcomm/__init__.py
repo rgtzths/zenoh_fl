@@ -13,6 +13,7 @@ import pickle
 import json
 import time
 import logging
+from collections import deque
 
 ALL_SRC = -1
 ANY_SRC = -2
@@ -42,6 +43,7 @@ class ZComm(object):
         self.session = self.connect_zenoh(locator)
         self.rank = rank
         self.data = {}
+        self.msg_queue = deque()
 
         self.ke_live_queryable = f'mpi/{rank}/status'
         self.ke_data = f'mpi/{rank}/data'
@@ -67,18 +69,22 @@ class ZComm(object):
 
     def update_data(self, zcomdata):
         src_data = self.data.get(zcomdata.src)
+        data_dict = {zcomdata.tag: zcomdata.data}
         if src_data is None:
             # No data received from this source
-            # creating the inner dict
-            data_dict = {zcomdata.tag: zcomdata.data}
+            # creating the inner dict    
             self.data.update({zcomdata.src:data_dict})
         else:
-            src_data.update({zcomdata.tag: zcomdata.data})
+            src_data.update(data_dict)
+        
+        self.msg_queue.append(zcomdata.src)
+        #logging.debug(f'[RANK {self.rank}] Queue: {self.msg_queue} Data: {self.data}')
 
     def data_cb(self, query):
+        #logging.debug(f'[RANK {self.rank}] DATA CB')
         ke = f'{query.selector.key_expr}'
         data = ZCommData.deserialize(query.value.payload)
-        # print(f'[RANK {self.rank}] Received on {ke} - Data: {data}')
+        #logging.debug(f'[RANK {self.rank}] Received on {ke} - Data: {data}')
         self.update_data(data)
         query.reply(Sample(ke, b''))
 
@@ -101,43 +107,49 @@ class ZComm(object):
                 time.sleep(0.05)
 
     def recv(self, source, tag):
+        #logging.debug(f'[RANK: {self.rank}] Receving from {source} - Tag: {tag}')
         if source == ALL_SRC:
             return self.recv_from_all(tag)
         elif source == ANY_SRC:
             return self.recv_from_any(tag)
 
-        expected = 1
-        acks = 0
+        while True:
+            try: 
+                #logging.debug(f'[RANK {self.rank}] Before Queue: {self.msg_queue} ')
+                index = self.msg_queue.index(source)
+                #logging.debug(f'[RANK: {self.rank}] Receving from {source} - Index: {index}')
+                del self.msg_queue[index]
+                #logging.debug(f'[RANK {self.rank}] After Queue: {self.msg_queue} ')
+                src_data = self.data.get(source)
+                if tag == ANY_TAG:
+                    any_tag_data = {}
+                    tags = src_data.keys()
+                    for tag in tags:
+                        data = src_data.pop(tag)
+                        any_tag_data.update({(source, tag) : data})
 
-        while acks < expected:
-            src_data = self.data.get(source)
-            if src_data is None:
+                        return any_tag_data
+            
+                else:
+                    while True:
+                        tag_data = src_data.get(tag)
+                        if tag_data is None:
+                            time.sleep(0.005)
+                            continue
+                        del src_data[tag]
+                        return {(source, tag): tag_data} 
+
+            except Exception as _e:
+                #logging.error(f'[RANK {self.rank}] Exception: {e} ')
                 time.sleep(0.005)
                 continue
-            if tag == ANY_TAG:
-                any_tag_data = {}
-                tags = src_data.keys()
-                for tag in tags:
-                    data = src_data.pop(tag)
-                    any_tag_data.update({(source, tag) : data})
-
-                    return any_tag_data
-            
-            else:
-                tag_data = src_data.get(tag)
-                if tag_data is None:
-                    time.sleep(0.005)
-                    continue
-                del src_data[tag]
-                acks = 1
-                return {(source, tag): tag_data}
 
     def send(self, dest, data, tag):
         msg = ZCommData(self.rank, dest, tag, data)
         expected = 1
         acks = 0
         ke = f"mpi/{dest}/data"
-        # print(f'[RANK: {self.rank}] Sending on {ke} - Data: {msg}')
+        #logging.debug(f'[RANK: {self.rank}] Sending on {ke} - Data: {msg}')
         while acks < expected:
             replies = self.session.get(ke, zenoh.Queue(), value = msg.serialize())
             for reply in replies:
@@ -148,6 +160,7 @@ class ZComm(object):
                     continue
             
             time.sleep(0.005)
+        #logging.debug(f'[RANK: {self.rank}] Sent on {ke}')
 
     def bcast(self, root, data, tag):
         if self.rank == root:
@@ -172,11 +185,9 @@ class ZComm(object):
 
     def recv_from_any(self, tag):
         any_src = None
-        while any_src is None:
-            for (s, d) in self.data.items():
-                if len(d) != 0:
-                    any_src = s
+        while len(self.msg_queue) == 0:
             time.sleep(0.005)
 
-        # logging.debug(f"Data is {self.data}")
+        any_src = self.msg_queue[0]
+        # logging.debug(f"Data is {self.data}"
         return self.recv(any_src, tag)

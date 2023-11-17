@@ -18,7 +18,7 @@ case $TEST in
         ;;
     sync_decentralized)
         echo "Running decentarlized sync"
-        python3 z_decentralized_sync.py -d  dataset/one_hot_encoding  -o /results/zenoh-decentralized-sync -w 3 -r $RANK # $EPOCHS
+        python3 z_decentralized_sync.py -d  dataset/one_hot_encoding  -o /results/zenoh-decentralized-sync -w 3 -r $RANK -l 0.1 # $EPOCHS
         touch /results/zenoh-decentralized-sync/done
         ;;
     async_decentralized)

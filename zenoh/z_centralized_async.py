@@ -30,11 +30,11 @@ def create_MLP():
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)
 
 parser = argparse.ArgumentParser(description='Train and test the model')
-parser.add_argument('-e', type=int, help='Epochs number', default=100000)
+parser.add_argument('-e', type=int, help='Epochs number', default=10)
 parser.add_argument('-l', type=float, help='Learning rate', default=0.00001)
 parser.add_argument('-d', type=str, help='Dataset', default="one_hot/")
 parser.add_argument('-o', type=str, help='Output folder', default="results")
-parser.add_argument('-b', type=int, help='Batch size', default=64)
+parser.add_argument('-b', type=int, help='Batch size', default=1024)
 parser.add_argument('-s', type=int, help='Seed for the run', default=42)
 parser.add_argument('-w', type=int, help='workers', default=3)
 parser.add_argument('-r', type=int, help='rank')
@@ -65,6 +65,7 @@ comm.wait(n_workers+1)
 logging.info(f'[RANK: {rank}] Nodes up!')
 
 if rank == 0:
+    results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : []}}
     node_weights = [0]*n_workers
     X_cv = np.loadtxt(dataset/"x_cv.csv", delimiter=",", dtype=int)
     y_cv = np.loadtxt(dataset/"y_cv.csv", delimiter=",", dtype=int)
@@ -77,16 +78,19 @@ if rank == 0:
     #     n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
     #     node_weights[status.Get_source()-1] = n_examples
     data = comm.recv(source=ALL_SRC, tag=1000)
-    for (k,_), v in data.items():
-        node_weights[k-1] = v
+    for (source,src_tag), v in data.items():
+        #logging.debug(f'Data from {source, src_tag}')
+        node_weights[source-1] = v
     
-    total_n_examples = sum(node_weights)
+    total_n_batches = sum(node_weights)
+    total_batches = epochs * total_n_batches
 
-    node_weights = [weight/total_n_examples for weight in node_weights]
-    results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "loads" : []}}
-    results["times"]["loads"].append(time.time() - start)
+    node_weights = [weight/total_n_batches for weight in node_weights]
+    results["times"]["sync"].append(time.time() - start)
 
 else:
+    results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
+
     X_train = np.loadtxt(dataset/("x_train_subset_%d.csv" % rank), delimiter=",", dtype=int)
     y_train = np.loadtxt(dataset/("y_train_subset_%d.csv" % rank), delimiter=",", dtype=int)
     y_train = tf.keras.utils.to_categorical(y_train)
@@ -95,39 +99,51 @@ else:
     loss_fn = tf.keras.losses.CategoricalCrossentropy()
 
     #comm.send(len(X_train), dest=0, tag=1000)
-    comm.send(dest=0, data=len(X_train), tag=1000)
+    comm.send(dest=0, data=len(train_dataset), tag=1000)
+    #logging.debug(f'[RANK: {rank}] sent to {(0, 1000)}')
 
-optimizer = tf.keras.optimizers.SGD(learning_rate=0.00001)
+    total_batches = epochs * len(train_dataset)
+
+optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate)
 
 # model.set_weights(comm.bcast(model.get_weights(), root=0))
 model.set_weights(comm.bcast(data=model.get_weights(), root=0, tag=0))
 
 
 if rank == 0:
-    results["times"]["loads"].append(time.time() - start)
+    results["times"]["sync"].append(time.time() - start)
 
+epoch_start = time.time()
 if rank == 0:
-    logging.debug(f'[RANK: {rank}] Expected loops {epochs*n_workers}')
-    for batch in range(epochs*n_workers):
-        logging.debug(f'[RANK: {rank}] Batch {batch}')
+    #logging.debug(f'[RANK: {rank}] Expected loops {total_batches}')
+    latest_tag = 0
+    for batch in range(total_batches):
+        #logging.debug(f'[RANK: {rank}] Batch {batch}')
         data = comm.recv(source=ANY_SRC, tag=ANY_TAG)
         for (source, src_tag), grads in data.items():
 
         # grads = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
         # source = status.Get_source()
-            logging.debug(f'Data from {source, src_tag}')
+            #logging.debug(f'Data from {source, src_tag}')
 
-            grads = [grad*node_weights[source-1] for grad in grads] # Needs to be updated to the correct penalization format
+            if latest_tag < src_tag+1:
+                latest_tag = src_tag+1
+
+            behind_penalty = (src_tag+1 / latest_tag) #The more behind it is the less impact it will have, verry small penalization
+
+            grads = [grad*node_weights[source-1]*behind_penalty for grad in grads] 
 
             optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
             # comm.send(model.get_weights(), dest=source, tag=status.Get_tag())
             # TODO: return tag in recv
             comm.send(data=model.get_weights(), dest=source, tag=src_tag)
-            logging.debug(f'Sent to {source, src_tag}')
+            #logging.debug(f'Sent to {source, src_tag}')
 
-            if (batch // n_workers) % 1500 == 0:
-                logging.info("End of epoch %d" % ((batch//n_workers)))
+            if (batch+1) % total_n_batches == 0:
+                results["times"]["epochs"].append(time.time() - epoch_start)
+
+                logging.info(f"End of batch {(batch+1)//n_workers} -> epoch {(batch+1)//total_n_batches}")
 
                 predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
                 train_f1 = f1_score(y_cv, predictions, average="macro")
@@ -137,19 +153,15 @@ if rank == 0:
                 results["acc"].append(train_acc)
                 results["f1"].append(train_f1)
                 results["mcc"].append(train_mcc)
-                results["times"]["epochs"].append(time.time() - start)
-                logging.info("- val_f1: %f - val_mcc %f - val_acc %f" %(train_f1, train_mcc, train_acc))
-
-            tf.keras.backend.clear_session()
-            tf.compat.v1.reset_default_graph()
-            gc.collect()
+                results["times"]["global_times"].append(time.time() - start)
+                logging.info("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(train_f1, train_mcc, train_acc))
+                epoch_start = time.time()
                     
 else:
-    batch = 0
-    logging.debug(f'[RANK: {rank}] Expected loops {epochs}')
-    for epoch in range(epochs):
-        logging.debug(f'[RANK: {rank}] epoch {epoch}')
-        x_batch_train, y_batch_train = train_dataset[batch]
+    #logging.debug(f'[RANK: {rank}] Expected loops {total_batches}')
+    for batch in range(total_batches):
+        #logging.debug(f'[RANK: {rank}] epoch {batch}')
+        x_batch_train, y_batch_train = train_dataset[batch % len(train_dataset)]
 
         with tf.GradientTape() as tape:
 
@@ -159,21 +171,15 @@ else:
         grads = tape.gradient(loss_value, model.trainable_weights)
 
         #comm.send(grads, dest=0, tag=epoch)
-        comm.send(data=grads, dest=0, tag=epoch)
-        logging.debug(f'[RANK: {rank}] sent to {(0, epoch)}')
+        comm.send(data=grads, dest=0, tag=batch)
+        #logging.debug(f'[RANK: {rank}] sent to {(0, batch)}')
 
-        #model.set_weights(comm.recv(source=0, tag=epoch))
-        data = comm.recv(source=0, tag=epoch)
+        # model.set_weights(comm.recv(source=0, tag=epoch))
+        data = comm.recv(source=0, tag=batch)
         for (s, t), v in data.items():
-            logging.debug(f'[RANK: {rank}] recv from {(s, t)}')
+            #logging.debug(f'[RANK: {rank}] recv from {(s, t)}')
 
             model.set_weights(v)
-
-        batch = (batch + 1) % len(train_dataset)
-
-        tf.keras.backend.clear_session()
-        tf.compat.v1.reset_default_graph()
-        gc.collect()
 
 if rank==0:
     history = json.dumps(results)

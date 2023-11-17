@@ -39,7 +39,7 @@ while getopts "aAsSh" arg; do
    s)
         plog "[RUN] Zenoh Sync centralized"
         export TEST=sync_centralized
-        export EPOCHS=1500
+        export EPOCHS=3000
         bash -c "docker compose up" &
         COMPOSE_PID=$!
 
@@ -77,7 +77,7 @@ while getopts "aAsSh" arg; do
     a)
         plog "[RUN] Zenoh async centralized"
         export TEST=async_centralized
-        export EPOCHS=5
+        export EPOCHS=10
         bash -c "docker compose up" &
         COMPOSE_PID=$!
 
