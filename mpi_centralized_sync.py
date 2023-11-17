@@ -7,7 +7,6 @@ __email__ = 'rafaelgteixeira@ua.pt'
 __status__ = 'Development'
 
 import argparse
-import gc
 import json
 import pathlib
 import time

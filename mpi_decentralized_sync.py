@@ -7,7 +7,6 @@ __email__ = 'rafaelgteixeira@ua.pt'
 __status__ = 'Development'
 
 import argparse
-import gc
 import json
 import pathlib
 import time
@@ -181,10 +180,6 @@ for global_epoch in range(global_epochs):
         print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(train_f1, train_mcc, train_acc))
     else:
         results["times"]["epochs"].append(time.time() - epoch_start)
-
-    tf.keras.backend.clear_session()
-    tf.compat.v1.reset_default_graph()
-    gc.collect()
 
 history = json.dumps(results)
 if rank==0:
