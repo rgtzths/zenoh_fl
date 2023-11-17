@@ -19,7 +19,7 @@ services:
       - RANK=0
       - ID=manager
       - TEST=${TEST}
-      - EPOCHS=5000
+      - EPOCHS=${EPOCHS}
     depends_on:
       - worker1
       - worker2
@@ -39,7 +39,7 @@ services:
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
       - TEST=${TEST}
-      - EPOCHS=5000
+      - EPOCHS=${EPOCHS}
     command: /root/entrypoint.sh
     volumes:
       # - ./results:/results/
@@ -55,7 +55,7 @@ services:
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
       - TEST=${TEST}
-      - EPOCHS=5000
+      - EPOCHS=${EPOCHS}
     command: /root/entrypoint.sh
     volumes:
       # - ./results:/results/
@@ -69,7 +69,7 @@ services:
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
       - TEST=${TEST}
-      - EPOCHS=5000
+      - EPOCHS=${EPOCHS}
     command: /root/entrypoint.sh
     volumes:
       # - ./results:/results/
