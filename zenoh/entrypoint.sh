@@ -22,10 +22,9 @@ case $TEST in
         touch /results/zenoh-decentralized-sync/done
         ;;
     async_decentralized)
-        echo "Not yet..."
-        # echo "Running decentarlized async"
-        # mpirun -np 4 -hostfile hostfile python mpi_decentralized_assync.py -d dataset -o /results/mpi-decentralized-async #-e $EPOCHS
-        # touch /results/mpi-decentralized-async/done
+        echo "Running decentarlized async"
+        python3 z_decentralized_async.py -d dataset/one_hot_encoding -o /results/zenoh-decentralized-async -w 3 -r $RANK -l 0.1 #-e $EPOCHS
+        touch /results/mpi-decentralized-async/done
         ;;
     *)
         echo "Unknown test $TEST"

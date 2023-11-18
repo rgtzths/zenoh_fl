@@ -95,21 +95,20 @@ while getopts "aAsSh" arg; do
         ;;
     A)
         plog "[RUN] Zenoh async decentralized"
-      #   export TEST=async_decentralized
-      #   bash -c "docker compose up" &
-      #   COMPOSE_PID=$!
+        export TEST=async_decentralized
+        bash -c "docker compose up" &
+        COMPOSE_PID=$!
 
 
-      #   while [ ! -f results/zenoh-decentralized-async/done ]
-      #   do
-      #   sleep 20
-      #   done
-      #   ls -l results/zenoh-decentralized-async/
+        while [ ! -f results/zenoh-decentralized-async/done ]
+        do
+        sleep 20
+        done
+        ls -l results/zenoh-decentralized-async/
 
-      #   kill -2 $COMPOSE_PID
-      #   docker compose down
-      #   unset $TEST
-        plog "Not yet..."
+        kill -2 $COMPOSE_PID
+        docker compose down
+        unset $TEST
         plog "[DONE] Zenoh async decentralized"
         ;;
     *)
