@@ -24,7 +24,7 @@ case $TEST in
     async_decentralized)
         echo "Running decentarlized async"
         python3 z_decentralized_async.py -d dataset/one_hot_encoding -o /results/zenoh-decentralized-async -w 3 -r $RANK -l 0.1 #-e $EPOCHS
-        touch /results/mpi-decentralized-async/done
+        touch /results/zenoh-decentralized-async/done
         ;;
     *)
         echo "Unknown test $TEST"

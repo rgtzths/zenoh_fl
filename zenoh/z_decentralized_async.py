@@ -26,6 +26,7 @@ def create_MLP(learning_rate):
 
     return model
 
+logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)
 
 parser = argparse.ArgumentParser(description='Train and test the model')
 parser.add_argument('--g_epochs', type=int, help='Global epochs number', default=10)
@@ -89,7 +90,8 @@ if rank == 0:
     #         n_examples = pickle.loads(buff)
     data = comm.recv(source=ALL_SRC, tag=1000)
     for (source,src_tag), n_examples in data.items():
-        node_weights[status.Get_source()-1] = n_examples
+        # node_weights[status.Get_source()-1] = n_examples
+        node_weights[source-1] = n_examples
     
     biggest_n_examples = max(node_weights)
 
@@ -205,7 +207,7 @@ else:
         # results["times"]["comm_recv"].append(time.time() - com_time)
         data = comm.recv(source=0, tag=global_epoch)
         for (s, t), weight_diffs in data.items():
-            results["times"]["conv_recv"].append(time.time() - load_time)
+            # results["times"]["conv_recv"].append(time.time() - load_time)
 
             weights = [weight - weight_diffs[idx]
                             for idx, weight in enumerate(model.get_weights())]
