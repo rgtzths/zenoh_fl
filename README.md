@@ -4,34 +4,32 @@
 
 This repository has the following structure:
 ```
-├── FL/
+├── MPI/
 ├── [DATASET]/
 ├── config.py
 ├── data_division.py
 ├── federated_learning.py
 ├── model_eval.py
 ├── single_training.py
-├── plot_history.py
-├── get_messages.py
 └── Util.py
 ```
 
 Other folders contain data and results for specific datasets, which have the following structure:
 ```
 ├── data/
-├── fl/
+├── mpi/
 └── [DATASET].py
 ```
 
 For the main structure:
-- FL/ contains the implementation of the federated learning algorithms, which are used in federated_learning.py. 
+- MPI/ contains the implementation of the federated learning algorithms, which are used in federated_learning.py. 
 - config.py defines the datasets to be used in the experiments.
 - Util.py contains a class which all datasets must inherit from.
 - The other files are used to run experiments, use --help to see the options.
 
 For the dataset structure:
 - data/ contains the data files, including the train, test, validation and specific workers' data.
-- fl/ contains the results of the federated learning algorithms, including the models and the training logs, for each experiment.
+- mpi/ contains the results of the federated learning algorithms, including the models and the training logs, for each experiment.
 - [DATASET].py contains the implementation of the dataset, including the data loading and the data division.
 
 ## Setup
@@ -51,7 +49,6 @@ Finally, run the data_processing.py and data_division.py files for each dataset,
 
 - Run single_training.py for each dataset
 - Run federated_learning.py for the experiments you want to run
-
 
 To run on docker using a single command use `./run-tests.sh` that will run selected tests based on its parametes.
 Usage:

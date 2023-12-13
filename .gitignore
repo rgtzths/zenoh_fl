@@ -1,3 +1,10 @@
+# all csv files inside any "data" folder and any subfolder
+**/data/**/*.csv
+**/data/**/*.xlsx
+**/data/**/*.npz
+
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
