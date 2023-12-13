@@ -1,57 +1,59 @@
 # zenoh_fl
 
-## Installing
+## Structure
 
-To run the scenarios locally please install the requirements
+This repository has the following structure:
+```
+├── FL/
+├── [DATASET]/
+├── config.py
+├── data_division.py
+├── federated_learning.py
+├── model_eval.py
+├── single_training.py
+├── plot_history.py
+├── get_messages.py
+└── Util.py
+```
 
- `pip install -r requirements.txt`
+Other folders contain data and results for specific datasets, which have the following structure:
+```
+├── data/
+├── fl/
+└── [DATASET].py
+```
 
-If you want to run the experiments in RPIs please follow the `rpi_setup_comands.md`
+For the main structure:
+- FL/ contains the implementation of the federated learning algorithms, which are used in federated_learning.py. 
+- config.py defines the datasets to be used in the experiments.
+- Util.py contains a class which all datasets must inherit from.
+- The other files are used to run experiments, use --help to see the options.
 
-If you want to run the experiments in docker please run `docker compose up`.
+For the dataset structure:
+- data/ contains the data files, including the train, test, validation and specific workers' data.
+- fl/ contains the results of the federated learning algorithms, including the models and the training logs, for each experiment.
+- [DATASET].py contains the implementation of the dataset, including the data loading and the data division.
 
-mpi_decentralized_assync
+## Setup
 
-## Running
+First, create a virtual environment and install the requirements:
+```
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
 
-To run locally you only need the following commands
+Download the datasets and put them in the data/ folder of each dataset (links found in the data/README.md files of each dataset).
 
-`mpirun -np 4 python mpi_decentralized_assync.py -d dataset/one_hot_encoding/`
+Finally, run the data_processing.py and data_division.py files for each dataset, to process the data and divide it into train, test, validation and workers' data.
 
-`mpirun -np 4 python mpi_decentralized_sync.py -d dataset/one_hot_encoding/`
+## Running the experiments
 
-`mpirun -np 4 python mpi_centralized_sync.py -d dataset/one_hot_encoding/`
-
-`mpirun -np 4 python mpi_centralized_assync.py -d dataset/one_hot_encoding/`
-
-If you want to run the single_host setting you can run
-
-`python single_host.py`
-
-To run on docker you will need to connect to the master container
-
-`docker exec -it --user mpiuser [master_container_name] bash`
-
-Connect one time to every worker to confirm the fingerprint of the server.
-
-`ssh worker1` and then `exit`
-
-After this you can run the command
-
-`mpirun -np 4 -hostfile hostfile python mpi_decentralized_assync.py -d dataset`
-
-`mpirun -np 4 -hostfile hostfile python mpi_decentralized_sync.py -d dataset`
-
-`mpirun -np 4 -hostfile hostfile python mpi_centralized_sync.py -d dataset`
-
-`mpirun -np 4 -hostfile hostfile python mpi_centralized_assync.py -d dataset`
-
-inside the `code` folder.
-
-To change the hyperparameters please confirm the available options in the files.
+- Run single_training.py for each dataset
+- Run federated_learning.py for the experiments you want to run
 
 
-To run using a single command use `./run-tests.sh` that will run selected tests based on its parametes.
+To run on docker using a single command use `./run-tests.sh` that will run selected tests based on its parametes.
 Usage:
 ```
 Usage: ./run-tests.sh 
