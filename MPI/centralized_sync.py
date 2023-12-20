@@ -14,7 +14,9 @@ def run(
     early_stop,
     learning_rate,
     batch_size,
-    epochs 
+    epochs,
+    patience,
+    min_delta
 ):
 
     comm = MPI.COMM_WORLD
@@ -26,6 +28,7 @@ def run(
     stop_buff = bytearray(pickle.dumps(stop))
 
     dataset = dataset_util.name
+    patience_buffer = [0]*patience
 
 
     if rank == 0:
@@ -75,7 +78,6 @@ def run(
         results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
 
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)
-        X_train, y_train = X_train.values, y_train.values
 
         train_dataset = list(tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size))
 
@@ -198,8 +200,10 @@ def run(
                 results["mcc"].append(val_mcc)
                 results["times"]["global_times"].append(time.time() - start)
                 print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
+                patience_buffer = patience_buffer[1:]
+                patience_buffer.append(val_mcc)
 
-                if val_mcc > early_stop:
+                if val_mcc > early_stop or abs(patience_buffer[0] - patience_buffer[-1]) < min_delta :
                     stop = True
 
             else:

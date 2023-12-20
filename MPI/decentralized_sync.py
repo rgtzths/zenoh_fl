@@ -15,7 +15,9 @@ def run(
     learning_rate,
     batch_size, 
     global_epochs, 
-    local_epochs
+    local_epochs,
+    patience,
+    min_delta
 ):
 
     comm = MPI.COMM_WORLD
@@ -27,6 +29,7 @@ def run(
     stop_buff = bytearray(pickle.dumps(stop))
 
     dataset = dataset_util.name
+    patience_buffer = [0]*patience
 
     if rank == 0:
         print("Running decentralized sync")
@@ -36,7 +39,7 @@ def run(
         print(f"Local epochs: {local_epochs}")
         print(f"Batch size: {batch_size}")
 
-    output = f"{dataset}/mpi/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}"
+    output = f"{dataset}/fl/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -78,7 +81,6 @@ def run(
         results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
 
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)        
-        X_train, y_train = X_train.values, y_train.values
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
 
@@ -114,20 +116,6 @@ def run(
                     avg_weights = [ weight * node_weights[source-1] for weight in weights]
                 else:
                     avg_weights = [ avg_weights[i] + weights[i] * node_weights[source-1] for i in range(len(weights))]
-            
-            model.set_weights(avg_weights)
-
-            predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
-            val_f1 = f1_score(y_cv, predictions, average="macro")
-            val_mcc = matthews_corrcoef(y_cv, predictions)
-            val_acc = accuracy_score(y_cv, predictions)
-
-            results["acc"].append(val_acc)
-            results["f1"].append(val_f1)
-            results["mcc"].append(val_mcc)
-            
-            if val_mcc >= early_stop:
-                stop = True
                 
             load_time = time.time()
             model_buff = bytearray(pickle.dumps(avg_weights))
@@ -149,21 +137,8 @@ def run(
         comm.Bcast(model_buff, root=0)
 
         if rank == 0:
-            stop_buff = bytearray(pickle.dumps(stop))
-
-        comm.Bcast(stop_buff, root=0)
-
-        if rank != 0:
-            stop = pickle.loads(stop_buff)
-
-        if rank == 0:
             results["times"]["comm_send"].append(time.time() - com_time)
 
-            results["times"]["epochs"].append(time.time() - epoch_start)
-
-            results["times"]["global_times"].append(time.time() - start)
-
-            print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
         else:
             results["times"]["comm_recv"].append(time.time() - com_time)
 
@@ -173,9 +148,42 @@ def run(
 
             model.set_weights(avg_weights)
             results["times"]["epochs"].append(time.time() - epoch_start)
+        
+        if rank == 0:
+            stop_buff = bytearray(pickle.dumps(stop))
 
-        if stop:
-            break
+        comm.Bcast(stop_buff, root=0)
+
+        if rank != 0:
+            stop = pickle.loads(stop_buff)
+            if stop:
+                break
+        else:
+            if stop:
+                break
+
+            results["times"]["epochs"].append(time.time() - epoch_start)
+
+            model.set_weights(avg_weights)
+
+            predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
+            val_f1 = f1_score(y_cv, predictions, average="macro")
+            val_mcc = matthews_corrcoef(y_cv, predictions)
+            val_acc = accuracy_score(y_cv, predictions)
+
+            results["acc"].append(val_acc)
+            results["f1"].append(val_f1)
+            results["mcc"].append(val_mcc)
+            results["times"]["global_times"].append(time.time() - start)
+
+            patience_buffer = patience_buffer[1:]
+            patience_buffer.append(val_mcc)
+            print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
+            
+            if val_mcc >= early_stop or abs(patience_buffer[0] - patience_buffer[-1]) < min_delta :
+                stop = True
+            
+
 
     history = json.dumps(results)
     if rank==0:
