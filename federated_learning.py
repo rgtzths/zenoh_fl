@@ -1,5 +1,4 @@
 import argparse
-import tensorflow as tf
 
 from MPI.centralized_async import run as mpi_centralized_async
 from MPI.centralized_sync import run as mpi_centralized_sync
