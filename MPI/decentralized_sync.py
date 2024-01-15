@@ -87,6 +87,7 @@ def run(
         compr_data = pickle.dumps(len(X_train))
 
         comm.Send(compr_data, dest=0, tag=1000)
+        model_buff = bytearray(len(model_buff) + 10000)
 
     comm.Bcast(model_buff, root=0)
 
