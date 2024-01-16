@@ -12,7 +12,7 @@ import time
 import logging
 import numpy as np
 import tensorflow as tf
-from zcomm import ZComm, ALL_SRC, ANY_SRC
+from ZENOH.zcomm import ZComm, ALL_SRC, ANY_SRC
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)

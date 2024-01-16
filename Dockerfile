@@ -1,22 +1,17 @@
-FROM tensorflow/tensorflow
+FROM tensorflow/tensorflow:2.15.0
 
 # ENV USER mpiuser
 
 ENV HOME=/root
 
-RUN apt update && apt -y install openmpi-bin openssh-server libopenmpi-dev python-is-python3
-
+RUN apt update && apt -y install openmpi-bin openssh-server libopenmpi-dev wget 
+RUN apt remove --purge python3.11* -y
+RUN apt install -y python3.10-dev python3.10-distutils python3.10-venv
 RUN mkdir /var/run/sshd
 
-# RUN useradd -ms /bin/bash ${USER} 
+RUN cd /tmp && wget https://bootstrap.pypa.io/get-pip.py && python3.10 get-pip.py
 
-# RUN usermod -aG sudo ${USER}
-
-# USER ${USER}
-
-RUN python3 -m pip install --upgrade pip
-
-RUN python3 -m pip install mpi4py && python3 -m pip install scikit-learn
+RUN pip3 install mpi4py scikit-learn
 
 WORKDIR ${HOME}
 
@@ -27,20 +22,13 @@ RUN cat id_rsa.pub >> authorized_keys
 RUN echo "StrictHostKeyChecking accept-new" > config
 RUN echo $(ls)
 
-COPY dataset/one_hot_encoding ${HOME}/code/dataset
-COPY mpi_centralized_assync.py ${HOME}/code/mpi_centralized_assync.py
-COPY mpi_centralized_sync.py ${HOME}/code/mpi_centralized_sync.py
-COPY mpi_decentralized_assync.py ${HOME}/code/mpi_decentralized_assync.py
-COPY mpi_decentralized_sync.py ${HOME}/code/mpi_decentralized_sync.py
-COPY host_file ${HOME}/code/hostfile
-COPY entrypoint.sh ${HOME}/entrypoint.sh
-
 WORKDIR ${HOME}
 
-# USER root
+COPY . .
 
-# RUN chown -R ${USER}:${USER} ${HOME}/code
-RUN chmod +x ${HOME}/entrypoint.sh
+RUN pip3 install -r ZENOH/requirements.txt
+
+RUN chmod +x ${HOME}/federated_learning.py
 
 EXPOSE 22
 

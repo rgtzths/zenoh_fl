@@ -6,12 +6,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: federated_learning
     ports: 
       - "22"
     links: 
       - worker1
       - worker2
-      - worker3
+      # - worker3
     environment:
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
@@ -21,13 +22,13 @@ services:
     depends_on:
       - worker1
       - worker2
-      - worker3
-    command: /root/entrypoint.sh
+      # - worker3
+    command: sleep infinity
     volumes:
       - ./results:/results/
 
   worker1: 
-    build: .
+    image: federated_learning
     hostname: worker1
     environment:
       - ID=worker-1
@@ -35,7 +36,7 @@ services:
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
   worker2: 
-    build: .
+    image: federated_learning
     hostname: worker2
     environment:
       - ID=worker-2
@@ -43,9 +44,17 @@ services:
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
   worker3: 
-    build: .
+    image: federated_learning
     hostname: worker3
     environment:
       - ID=worker-3
+      - OMPI_ALLOW_RUN_AS_ROOT=1
+      - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+
+  worker4: 
+    image: federated_learning
+    hostname: worker4
+    environment:
+      - ID=worker-4
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
