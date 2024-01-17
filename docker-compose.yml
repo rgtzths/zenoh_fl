@@ -19,11 +19,12 @@ services:
       - ID=manager
       - TEST=${TEST}
       - EPOCHS=100000
+      - MASTER=1
     depends_on:
       - worker1
       - worker2
-      # - worker3
-    command: sleep infinity
+      - worker3
+      - worker4
     volumes:
       - ./results:/results/
 
@@ -34,6 +35,7 @@ services:
       - ID=worker-1
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+      - TEST=${TEST}
 
   worker2: 
     image: federated_learning
@@ -42,6 +44,7 @@ services:
       - ID=worker-2
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+      - TEST=${TEST}
 
   worker3: 
     image: federated_learning
@@ -50,6 +53,7 @@ services:
       - ID=worker-3
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+      - TEST=${TEST}
 
   worker4: 
     image: federated_learning
@@ -58,3 +62,4 @@ services:
       - ID=worker-4
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+      - TEST=${TEST}

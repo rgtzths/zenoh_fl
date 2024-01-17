@@ -29,7 +29,8 @@ COPY . .
 RUN pip3 install -r ZENOH/requirements.txt
 
 RUN chmod +x ${HOME}/federated_learning.py
+RUN chmod +x ${HOME}/entrypoint.sh
 
 EXPOSE 22
 
-CMD ["/usr/sbin/sshd", "-D"]
+CMD ["/root/entrypoint.sh"]
