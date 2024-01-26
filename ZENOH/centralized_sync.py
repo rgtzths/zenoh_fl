@@ -53,6 +53,7 @@ def run(
     logging.info(f'[RANK: {rank}] Nodes up!')
 
     if rank == 0:
+        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : [], "loads" : []}}
         node_weights = [0]*n_workers
         X_cv, y_cv = dataset_util.load_validation_data()
         
@@ -73,7 +74,6 @@ def run(
         total_size = sum(node_weights)
 
         node_weights = [weight/total_size for weight in node_weights]
-        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "loads" : []}}
         results["times"]["loads"].append(time.time() - start)
         # print(f'[RANK: {rank}] Results: {results}!')
         total_n_batches = max(node_weights)
@@ -82,6 +82,8 @@ def run(
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)
 
         train_dataset = list(tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size))
+
+        total_n_batches = len(train_dataset)
 
         # comm.send(len(X_train), dest=0, tag=1000)
         comm.send(dest=0, data=len(X_train), tag=1000)

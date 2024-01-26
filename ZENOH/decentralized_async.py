@@ -35,7 +35,6 @@ def run(
     rank
 ):
 
-    n_workers = comm.Get_size()-1
     stop = False
     dataset = dataset_util.name
     patience_buffer = [0]*patience
@@ -150,7 +149,6 @@ def run(
                 
                 local_weights = [local_weights[idx] + weight
                                 for idx, weight in enumerate(weight_diffs)]
-            
             # load_time = time.time()
             # weights = pickle.dumps(weight_diffs)
             # results["times"]["conv_send"].append(time.time() - load_time)
@@ -160,7 +158,7 @@ def run(
             # comm.Send(weights, dest=source, tag=tag)
             # results["times"]["comm_send"].append(time.time() - comm_time)
 
-            comm.send(stop, dest=source, tag=src_tag)
+            comm.send(data=stop, dest=source, tag=src_tag)
 
             if stop:
                 exited_workers +=1

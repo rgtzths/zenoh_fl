@@ -59,7 +59,12 @@ Usage: ./run-tests.sh
    -A async decentralized
    -s sync centralized	
    -h help
+```
 
+You can also run the experiments via Docker compose
+
+```
+COMM=[mpi|zenoh] TEST=[1|2|3|4] docker compose up 
 ```
 
 ## Results
@@ -68,6 +73,7 @@ Usage: ./run-tests.sh
 ## Authors
 
 * **Rafael Teixeira** - [rgtzths](https://github.com/rgtzths)
+* **Gabriele Baldoni** - [gabrik](https://github.com/gabrik)
 
 ## License
 

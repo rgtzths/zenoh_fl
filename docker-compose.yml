@@ -20,6 +20,8 @@ services:
       - TEST=${TEST}
       - EPOCHS=100000
       - MASTER=1
+      - RANK=0
+      - COMM=${COMM}
     depends_on:
       - worker1
       - worker2
@@ -27,39 +29,56 @@ services:
       - worker4
     volumes:
       - ./results:/results/
+      - ./ZENOH:/root/ZENOH
 
   worker1: 
     image: federated_learning
     hostname: worker1
     environment:
+      - RANK=1
       - ID=worker-1
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
       - TEST=${TEST}
+      - COMM=${COMM}
+    volumes:
+      - ./ZENOH:/root/ZENOH
 
   worker2: 
     image: federated_learning
     hostname: worker2
     environment:
+      - RANK=2
       - ID=worker-2
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
       - TEST=${TEST}
+      - COMM=${COMM}
+    volumes:
+      - ./ZENOH:/root/ZENOH
 
   worker3: 
     image: federated_learning
     hostname: worker3
     environment:
+      - RANK=3
       - ID=worker-3
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
       - TEST=${TEST}
+      - COMM=${COMM}
+    volumes:
+      - ./ZENOH:/root/ZENOH
 
   worker4: 
     image: federated_learning
     hostname: worker4
     environment:
+      - RANK=4
       - ID=worker-4
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
       - TEST=${TEST}
+      - COMM=${COMM}
+    volumes:
+      - ./ZENOH:/root/ZENOH
