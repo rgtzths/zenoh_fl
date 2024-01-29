@@ -32,7 +32,7 @@ def run(
 
     stop = False
     dataset = dataset_util.name
-    patience_buffer = [0]*patience
+    patience_buffer = [-1]*patience
 
 
     output = f"{dataset}/zenoh/centralized_async/{n_workers}_{epochs}"
@@ -62,12 +62,8 @@ def run(
 
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
-        # for node in range(n_workers):
-        #     n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
-        #     node_weights[status.Get_source()-1] = n_examples
         data = comm.recv(source=ALL_SRC, tag=1000)
         for (source,src_tag), v in data.items():
-            #logging.debug(f'Data from {source, src_tag}')
             node_weights[source-1] = v
         
         total_n_batches = sum(node_weights)
@@ -83,13 +79,10 @@ def run(
 
         train_dataset = list(tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size))
 
-        #comm.send(len(X_train), dest=0, tag=1000)
         comm.send(dest=0, data=len(train_dataset), tag=1000)
-        #logging.debug(f'[RANK: {rank}] sent to {(0, 1000)}')
 
         total_batches = epochs * len(train_dataset)
 
-    # model.set_weights(comm.bcast(model.get_weights(), root=0))
     model.set_weights(comm.bcast(data=model.get_weights(), root=0, tag=0))
 
 
@@ -98,31 +91,26 @@ def run(
 
     epoch_start = time.time()
     if rank == 0:
-        #logging.debug(f'[RANK: {rank}] Expected loops {total_batches}')
+
         exited_workers = 0
         latest_tag = 0
-        for batch in range(total_batches):
-            #logging.debug(f'[RANK: {rank}] Batch {batch}')
-            data = comm.recv(source=ANY_SRC, tag=ANY_TAG)
-            for (source, src_tag), grads in data.items():
 
-            # grads = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
-            # source = status.Get_source()
-                #logging.debug(f'Data from {source, src_tag}')
+        for batch in range(total_batches):
+
+            data = comm.recv(source=ANY_SRC, tag=ANY_TAG)
+            
+            for (source, src_tag), grads in data.items():
 
                 if latest_tag < src_tag+1:
                     latest_tag = src_tag+1
 
-                behind_penalty = (src_tag+1 / latest_tag) #The more behind it is the less impact it will have, verry small penalization
+                behind_penalty = (src_tag+1 / latest_tag) 
 
                 grads = [grad*node_weights[source-1]*behind_penalty for grad in grads] 
 
                 optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
-                # comm.send(model.get_weights(), dest=source, tag=status.Get_tag())
-                # TODO: return tag in recv
                 comm.send(data=model.get_weights(), dest=source, tag=src_tag)
-                #logging.debug(f'Sent to {source, src_tag}')
 
                 comm.send(data=stop, dest=source, tag=src_tag)
 
@@ -149,15 +137,18 @@ def run(
                     patience_buffer = patience_buffer[1:]
                     patience_buffer.append(val_mcc)
 
-                    if val_mcc > early_stop or abs(patience_buffer[0] - patience_buffer[-1]) < min_delta:
+                    p_stop = True
+                    for value in patience_buffer[1:]:
+                        if abs(patience_buffer[0] - value) > min_delta:
+                            p_stop = False 
+
+                    if val_mcc > early_stop or p_stop:
                         stop = True
 
                     epoch_start = time.time()
                         
     else:
-        #logging.debug(f'[RANK: {rank}] Expected loops {total_batches}')
         for batch in range(total_batches):
-            #logging.debug(f'[RANK: {rank}] epoch {batch}')
             train_time = time.time()
 
             x_batch_train, y_batch_train = train_dataset[batch % len(train_dataset)]
@@ -170,21 +161,14 @@ def run(
             grads = tape.gradient(loss_value, model.trainable_weights)
             results["times"]["train"].append(time.time() - train_time)
 
-            #comm.send(grads, dest=0, tag=epoch)
             comm.send(data=grads, dest=0, tag=batch)
-            #logging.debug(f'[RANK: {rank}] sent to {(0, batch)}')
 
-            # model.set_weights(comm.recv(source=0, tag=epoch))
             data = comm.recv(source=0, tag=batch)
             for (s, t), v in data.items():
-                #logging.debug(f'[RANK: {rank}] recv from {(s, t)}')
-
                 model.set_weights(v)
             
             data = comm.recv(source=0, tag=batch)
             for (s, t), v in data.items():
-                #logging.debug(f'[RANK: {rank}] recv from {(s, t)}')
-
                 stop = v
 
             if (batch+1) % len(train_dataset) == 0:

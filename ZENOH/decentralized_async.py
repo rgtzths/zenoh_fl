@@ -74,13 +74,8 @@ def run(
 
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
-        # for node in range(n_workers):
-        #         status = MPI.Status()
-        #         comm.Recv(buff, source=MPI.ANY_SOURCE, tag=1000, status=status)
-        #         n_examples = pickle.loads(buff)
         data = comm.recv(source=ALL_SRC, tag=1000)
         for (source,src_tag), n_examples in data.items():
-            # node_weights[status.Get_source()-1] = n_examples
             node_weights[source-1] = n_examples
         
         biggest_n_examples = max(node_weights)
@@ -88,7 +83,6 @@ def run(
         node_weights = [n_examples/biggest_n_examples for n_examples in node_weights]
 
         results["times"]["sync"].append(time.time() - start)
-        # weights = bytearray(pickle.dumps(model.get_weights()))
 
     else:
         results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
@@ -97,17 +91,11 @@ def run(
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
 
-        # compr_data = pickle.dumps(len(X_train))
-
-        # comm.Send(compr_data, dest=0, tag=1000)
-        comm.send(dest=0, data=len(X_train), tag=1000)
-        # weights = buff
-
+        comm.send(dest=0, data=len(train_dataset), tag=1000)
 
     '''
     Parameter server shares its values so every worker starts from the same point.
     '''
-    # comm.Bcast(weights, root=0)
     model.set_weights(comm.bcast(data=model.get_weights(), root=0, tag=0))
 
     if rank == 0:
@@ -127,19 +115,6 @@ def run(
             if epoch % n_workers == 0:
 
                 logging.info("Start of epoch %d" % (epoch//n_workers+1))
-            
-            #This needs to be changed to the correct formula
-            
-            # com_time = time.time()
-            # comm.Recv(buff, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
-            # results["times"]["comm_recv"].append(time.time() - com_time)
-
-            # load_time = time.time()
-            # weights = pickle.loads(buff)
-            # results["times"]["conv_recv"].append(time.time() - load_time)
-
-            # source = status.Get_source()
-            # tag = status.Get_tag()
 
             #Check how to combine here
             data = comm.recv(source=ANY_SRC, tag=ANY_TAG)
@@ -149,15 +124,9 @@ def run(
                 
                 local_weights = [local_weights[idx] + weight
                                 for idx, weight in enumerate(weight_diffs)]
-            # load_time = time.time()
-            # weights = pickle.dumps(weight_diffs)
-            # results["times"]["conv_send"].append(time.time() - load_time)
-            
-            # comm_time = time.time()
-            comm.send(data=weight_diffs, dest=source, tag=src_tag)
-            # comm.Send(weights, dest=source, tag=tag)
-            # results["times"]["comm_send"].append(time.time() - comm_time)
 
+            comm.send(data=weight_diffs, dest=source, tag=src_tag)
+            
             comm.send(data=stop, dest=source, tag=src_tag)
 
             if stop:
@@ -165,7 +134,7 @@ def run(
             if exited_workers == n_workers:
                 break
 
-            if epoch % n_workers == n_workers-1:
+            if epoch % n_workers == n_workers-1 and not stop:
                 results["times"]["epochs"].append(time.time() - epoch_start)
                 model.set_weights(local_weights)
                 predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
@@ -182,9 +151,13 @@ def run(
 
                 logging.info("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
 
-                if val_mcc > early_stop or abs(patience_buffer[0] - patience_buffer[-1]) < min_delta:
-                    stop = True
+                p_stop = True
+                for value in patience_buffer[1:]:
+                    if abs(patience_buffer[0] - value) > min_delta:
+                        p_stop = False 
 
+                if val_mcc > early_stop or p_stop:
+                    stop = True
                 epoch_start = time.time()
 
     else:
@@ -195,40 +168,21 @@ def run(
             model.fit(train_dataset, epochs=local_epochs, verbose=0)
             results["times"]["train"].append(time.time() - train_time)
 
-            # load_time = time.time()
-            # weights = pickle.dumps(model.get_weights())
-            # results["times"]["conv_send"].append(time.time() - load_time)
-            
-            # comm_time = time.time()
-            # comm.Send(weights, dest=0, tag=global_epoch)
             comm.send(data=model.get_weights(), dest=0, tag=global_epoch)
-            # results["times"]["comm_send"].append(time.time() - comm_time)
 
-            # com_time = time.time()
-            # comm.Recv(buff, source=0, tag=global_epoch)
-            # results["times"]["comm_recv"].append(time.time() - com_time)
             data = comm.recv(source=0, tag=global_epoch)
             for (s, t), weight_diffs in data.items():
-                # results["times"]["conv_recv"].append(time.time() - load_time)
 
                 weights = [weight - weight_diffs[idx]
                                 for idx, weight in enumerate(model.get_weights())]
                 
                 model.set_weights(weights)    
             
-            # results["times"]["epochs"].append(time.time() - epoch_start)
+            results["times"]["epochs"].append(time.time() - epoch_start)
 
-            # load_time = time.time()
-            # weight_diffs = pickle.loads(buff)
-            # results["times"]["conv_recv"].append(time.time() - load_time)
-
-            # weights = [weight - weight_diffs[idx]
-            #                  for idx, weight in enumerate(model.get_weights())]
-            
-            # model.set_weights(weights)    
-            
-            # results["times"]["epochs"].append(time.time() - epoch_start)
-            stop = comm.recv(source=0, tag=global_epoch)
+            data = comm.recv(source=0, tag=global_epoch)
+            for (s, t), value in data.items():
+                stop = value
 
             if stop:
                 break

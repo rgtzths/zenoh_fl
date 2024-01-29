@@ -27,7 +27,7 @@ def run(
     stop = False
     stop_buff = bytearray(pickle.dumps(stop))
     dataset = dataset_util.name
-    patience_buffer = [0]*patience
+    patience_buffer = [-1]*patience
 
     if rank == 0:
         print("Running centralized async")
@@ -167,7 +167,12 @@ def run(
                 patience_buffer = patience_buffer[1:]
                 patience_buffer.append(val_mcc)
 
-                if val_mcc > early_stop or abs(patience_buffer[0] - patience_buffer[-1]) < min_delta :
+                p_stop = True
+                for value in patience_buffer[1:]:
+                    if abs(patience_buffer[0] - value) > min_delta:
+                        p_stop = False 
+
+                if (val_mcc > early_stop or p_stop) and (batch+1)//total_n_batches > 10:
                     stop = True
 
                 epoch_start = time.time()

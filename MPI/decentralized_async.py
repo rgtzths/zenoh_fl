@@ -29,7 +29,7 @@ def run(
     stop = False
     stop_buff = bytearray(pickle.dumps(stop))
     dataset = dataset_util.name
-    patience_buffer = [0]*patience
+    patience_buffer = [-1]*patience
 
 
 
@@ -180,7 +180,12 @@ def run(
 
                 print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
 
-                if val_mcc > early_stop or abs(patience_buffer[0] - patience_buffer[-1]) < min_delta:
+                p_stop = True
+                for value in patience_buffer[1:]:
+                    if abs(patience_buffer[0] - value) > min_delta:
+                        p_stop = False 
+
+                if (val_mcc > early_stop or p_stop) and epoch//n_workers+1 > 10:
                     stop = True
 
                 epoch_start = time.time()

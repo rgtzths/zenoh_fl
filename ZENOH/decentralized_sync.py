@@ -35,7 +35,7 @@ def run(
 
     stop = False
     dataset = dataset_util.name
-    patience_buffer = [0]*patience
+    patience_buffer = [-1]*patience
 
     output = f"{dataset}/fl/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}"
     output = pathlib.Path(output)
@@ -57,6 +57,7 @@ def run(
     logging.info(f'[RANK: {rank}] Nodes up!')
 
     if rank == 0:
+        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : []}}
         node_weights = [0]*(n_workers)
         X_cv, y_cv = dataset_util.load_validation_data()
 
@@ -64,8 +65,6 @@ def run(
 
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
-        # for node in range(n_workers):
-        #   n_examples = comm.recv(source=MPI.ANY_SOURCE tag=1000, status=status)
         data = comm.recv(source=ALL_SRC, tag=1000)
         for (src, t), nsamples in data.items():
             node_weights[src-1] = nsamples
@@ -73,30 +72,28 @@ def run(
         total_size = sum(node_weights)
 
         node_weights = [weight/total_size for weight in node_weights]
-        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "loads" : []}}
-        results["times"]["loads"].append(time.time() - start)
+        results["times"]["sync"].append(time.time() - start)
 
     else:
+        results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)        
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
-        comm.send(dest=0, tag=1000, data=len(X_train))
-        #comm.send(len(X_train), dest=0, tag=1000)
+        comm.send(dest=0, tag=1000, data=len(train_dataset))
 
     model.set_weights(comm.bcast(data=model.get_weights(), root=0, tag=-10))
 
     if rank == 0:
-        results["times"]["loads"].append(time.time() - start)
+        results["times"]["sync"].append(time.time() - start)
 
     for global_epoch in range(global_epochs):
+        epoch_start = time.time()
+
         avg_weights = []
 
         if rank == 0:
 
-            logging.info("\nStart of epoch %d" % global_epoch)
-            # for node in range(n_workers):
-            #     weights = comm.recv(source=MPI.ANY_SOURCE, tag=global_epoch, status=status)
-            #     source = status.Get_source()
+            logging.info("Start of epoch %d" % global_epoch)
             data = comm.recv(source=ALL_SRC, tag=global_epoch)
             for (source, t), weights in data.items():
                 if not avg_weights:
@@ -105,21 +102,23 @@ def run(
                     avg_weights = [ avg_weights[i] + weights[i] * node_weights[source-1] for i in range(len(weights))]
             
         else:
+            train_time = time.time()
             model.fit(train_dataset, epochs=local_epochs, verbose=0)
-            #comm.send(model.get_weights(), dest=0, tag=global_epoch)
+            results["times"]["train"].append(time.time() - train_time)
             comm.send(dest=0, tag=global_epoch, data=model.get_weights())
 
         model.set_weights(comm.bcast(data=avg_weights, root=0, tag=-10))
 
-        stop = comm.bcast(stop, root=0, tag=-10)
-
         if rank != 0:
-            if stop:
-                break
+            results["times"]["epochs"].append(time.time() - epoch_start)
 
-        else:
-            if stop:
-                break
+        stop = comm.bcast(data=stop, root=0, tag=-10)
+
+        if stop:
+            break
+
+        if rank == 0:
+            
             results["times"]["epochs"].append(time.time() - start)
 
             predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
@@ -134,9 +133,14 @@ def run(
 
             patience_buffer = patience_buffer[1:]
             patience_buffer.append(val_mcc)
-            logging.info("- val_f1: %f - val_mcc %f - val_acc %f" %(val_f1, val_mcc, val_acc))
+            logging.info("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
             
-            if val_mcc >= early_stop or abs(patience_buffer[0] - patience_buffer[-1]) < min_delta :
+            p_stop = True
+            for value in patience_buffer[1:]:
+                if abs(patience_buffer[0] - value) > min_delta:
+                    p_stop = False 
+
+            if (val_mcc > early_stop or p_stop) and global_epoch > 10:
                 stop = True
 
     history = json.dumps(results)

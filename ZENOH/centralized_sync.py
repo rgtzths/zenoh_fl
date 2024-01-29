@@ -34,7 +34,7 @@ def run(
 
     stop = False
     dataset = dataset_util.name
-    patience_buffer = [0]*patience
+    patience_buffer = [-1]*patience
 
     output = f"{dataset}/zenoh/centralized_sync/{n_workers}_{epochs}"
     output = pathlib.Path(output)
@@ -71,40 +71,45 @@ def run(
         # print(f'[RANK: {rank}] node_weights: {node_weights}!')
         
         
-        total_size = sum(node_weights)
-
-        node_weights = [weight/total_size for weight in node_weights]
-        results["times"]["loads"].append(time.time() - start)
-        # print(f'[RANK: {rank}] Results: {results}!')
+        sum_n_batches = sum(node_weights)
+        print(node_weights)
         total_n_batches = max(node_weights)
+        total_batches = epochs * total_n_batches
+
+        node_weights = [weight/sum_n_batches for weight in node_weights]
+
+        results["times"]["sync"].append(time.time() - start)
+
 
     else:
+        results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)
 
         train_dataset = list(tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size))
 
         total_n_batches = len(train_dataset)
+        total_batches = epochs * total_n_batches
 
         # comm.send(len(X_train), dest=0, tag=1000)
-        comm.send(dest=0, data=len(X_train), tag=1000)
+        comm.send(dest=0, data=total_n_batches, tag=1000)
 
-    optimizer = tf.keras.optimizers.SGD(learning_rate=0.00001)
+
     # print(f'[RANK: {rank}] After optimizer!')
     # model.set_weights(comm.bcast(model.get_weights(), root=0))
     model.set_weights(comm.bcast(data=model.get_weights(), root=0, tag=0))
     # print(f'[RANK: {rank}] After bcast!')
 
     if rank == 0:
-        results["times"]["loads"].append(time.time() - start)
+        results["times"]["sync"].append(time.time() - start)
 
-    batch = 0
-    for epoch in range(epochs):
+    epoch_start = time.time()
+    for batch in range(total_batches):
         weights = []
         if rank == 0:
             avg_grads = []
             #for node in range(n_workers):
 
-            grads_recv = comm.recv(source=ALL_SRC, tag=epoch)
+            grads_recv = comm.recv(source=ALL_SRC, tag=batch)
             for (source, _tag), grads in grads_recv.items(): 
                 # logging.debug(f'[RANK: {rank}] Data from {source, _tag}')
                 if not avg_grads:
@@ -119,7 +124,8 @@ def run(
             weights = model.get_weights()
             
         else:
-            x_batch_train, y_batch_train = train_dataset[batch]
+            train_time = time.time()
+            x_batch_train, y_batch_train = train_dataset[batch % len(train_dataset)]
 
             with tf.GradientTape() as tape:
 
@@ -128,10 +134,10 @@ def run(
 
             grads = tape.gradient(loss_value, model.trainable_weights)
 
+            results["times"]["train"].append(time.time() - train_time)
             #comm.send(grads, dest=0, tag=epoch)
-            comm.send(data=grads, tag=epoch, dest=0)
+            comm.send(data=grads, tag=batch, dest=0)
             # logging.debug(f'[RANK: {rank}] sent to {(0, epoch)}')
-            batch = (batch + 1) % len(train_dataset)
 
         model.set_weights(comm.bcast(data=weights, root=0, tag=0))
 
@@ -139,9 +145,9 @@ def run(
 
         if stop:
             break
-
-        # logging.debug(f'[RANK: {rank}] Done epoch {epoch}')
+        
         if (batch+1) % total_n_batches == 0:
+
             if rank == 0:
 
                 logging.info(f"\n End of batch {batch+1} -> epoch {(batch+1) // total_n_batches}")
@@ -157,7 +163,13 @@ def run(
                 logging.info("- val_f1: %f - val_mcc %f - val_acc %f" %(val_f1, val_mcc, val_acc))
                 patience_buffer = patience_buffer[1:]
                 patience_buffer.append(val_mcc)
-                if val_mcc > early_stop or abs(patience_buffer[0] - patience_buffer[-1]) < min_delta :
+                
+                p_stop = True
+                for value in patience_buffer[1:]:
+                    if abs(patience_buffer[0] - value) > min_delta:
+                        p_stop = False 
+
+                if (val_mcc > early_stop or p_stop) and (batch+1) // total_n_batches > 10:
                     stop = True
 
             else:

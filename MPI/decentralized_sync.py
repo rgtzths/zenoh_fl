@@ -29,7 +29,7 @@ def run(
     stop_buff = bytearray(pickle.dumps(stop))
 
     dataset = dataset_util.name
-    patience_buffer = [0]*patience
+    patience_buffer = [-1]*patience
 
     if rank == 0:
         print("Running decentralized sync")
@@ -157,11 +157,11 @@ def run(
 
         if rank != 0:
             stop = pickle.loads(stop_buff)
-            if stop:
-                break
-        else:
-            if stop:
-                break
+
+        if stop:
+            break
+
+        if rank == 0:
 
             results["times"]["epochs"].append(time.time() - epoch_start)
 
@@ -181,10 +181,13 @@ def run(
             patience_buffer.append(val_mcc)
             print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
             
-            if val_mcc >= early_stop or abs(patience_buffer[0] - patience_buffer[-1]) < min_delta :
-                stop = True
-            
+            p_stop = True
+            for value in patience_buffer[1:]:
+                if abs(patience_buffer[0] - value) > min_delta:
+                    p_stop = False 
 
+            if (val_mcc > early_stop or p_stop) and global_epoch > 10:
+                stop = True
 
     history = json.dumps(results)
     if rank==0:
