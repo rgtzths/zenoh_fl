@@ -88,7 +88,6 @@ def run(
 
     if rank == 0:
         results["times"]["sync"].append(time.time() - start)
-
     epoch_start = time.time()
     if rank == 0:
 
@@ -96,9 +95,11 @@ def run(
         latest_tag = 0
 
         for batch in range(total_batches):
+            logging.info(f'[RANK: {rank}] Waiting data!')
 
             data = comm.recv(source=ANY_SRC, tag=ANY_TAG)
-            
+            logging.info(f'[RANK: {rank}] Received data!')
+
             for (source, src_tag), grads in data.items():
 
                 if latest_tag < src_tag+1:
@@ -162,6 +163,7 @@ def run(
             results["times"]["train"].append(time.time() - train_time)
 
             comm.send(data=grads, dest=0, tag=batch)
+            logging.info(f'[RANK: {rank}] Sent data!')
 
             data = comm.recv(source=0, tag=batch)
             for (s, t), v in data.items():

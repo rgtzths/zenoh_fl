@@ -70,9 +70,7 @@ def run(
             node_weights[k-1] = v
         # print(f'[RANK: {rank}] node_weights: {node_weights}!')
         
-        
         sum_n_batches = sum(node_weights)
-        print(node_weights)
         total_n_batches = max(node_weights)
         total_batches = epochs * total_n_batches
 
@@ -90,14 +88,9 @@ def run(
         total_n_batches = len(train_dataset)
         total_batches = epochs * total_n_batches
 
-        # comm.send(len(X_train), dest=0, tag=1000)
         comm.send(dest=0, data=total_n_batches, tag=1000)
 
-
-    # print(f'[RANK: {rank}] After optimizer!')
-    # model.set_weights(comm.bcast(model.get_weights(), root=0))
     model.set_weights(comm.bcast(data=model.get_weights(), root=0, tag=0))
-    # print(f'[RANK: {rank}] After bcast!')
 
     if rank == 0:
         results["times"]["sync"].append(time.time() - start)
@@ -107,18 +100,14 @@ def run(
         weights = []
         if rank == 0:
             avg_grads = []
-            #for node in range(n_workers):
 
             grads_recv = comm.recv(source=ALL_SRC, tag=batch)
             for (source, _tag), grads in grads_recv.items(): 
-                # logging.debug(f'[RANK: {rank}] Data from {source, _tag}')
+
                 if not avg_grads:
                     avg_grads = [grad*node_weights[source-1] for grad in grads]
                 else:
                     avg_grads = [ avg_grads[i] + grads[i]*node_weights[source-1] for i in range(len(grads))]
-
-                # grads = comm.recv(source=MPI.ANY_SOURCE, tag=epoch, status=status)
-                # source = status.Get_source()
 
             optimizer.apply_gradients(zip(avg_grads, model.trainable_weights))
             weights = model.get_weights()
@@ -135,9 +124,8 @@ def run(
             grads = tape.gradient(loss_value, model.trainable_weights)
 
             results["times"]["train"].append(time.time() - train_time)
-            #comm.send(grads, dest=0, tag=epoch)
+
             comm.send(data=grads, tag=batch, dest=0)
-            # logging.debug(f'[RANK: {rank}] sent to {(0, epoch)}')
 
         model.set_weights(comm.bcast(data=weights, root=0, tag=0))
 
@@ -150,7 +138,7 @@ def run(
 
             if rank == 0:
 
-                logging.info(f"\n End of batch {batch+1} -> epoch {(batch+1) // total_n_batches}")
+                logging.info(f"End of batch {batch+1} -> epoch {(batch+1) // total_n_batches}")
                 predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
                 val_f1 = f1_score(y_cv, predictions, average="macro")
                 val_mcc = matthews_corrcoef(y_cv, predictions)
