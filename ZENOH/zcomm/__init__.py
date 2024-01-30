@@ -69,14 +69,21 @@ class ZComm(object):
 
     def update_data(self, zcomdata):
         src_data = self.data.get(zcomdata.src)
-        data_dict = {zcomdata.tag: zcomdata.data}
+        data_dict = {zcomdata.tag: deque([zcomdata.data])}
         if src_data is None:
             # No data received from this source
             # creating the inner dict    
             self.data.update({zcomdata.src:data_dict})
         else:
-            src_data.update(data_dict)
-        
+            # if not present check if data with this tag already exists
+            tag_data = src_data.get(zcomdata.tag) 
+            if tag_data is None:
+                # if not add it
+                src_data.update(data_dict)
+            else:
+                # if yes add to the queue
+                tag_data.append(zcomdata.data)
+
         self.msg_queue.append(zcomdata.src)
         #logging.debug(f'[RANK {self.rank}] Queue: {self.msg_queue} Data: {self.data}')
 
@@ -125,7 +132,7 @@ class ZComm(object):
                     any_tag_data = {}
                     tags = src_data.keys()
                     for tag in tags:
-                        data = src_data.pop(tag)
+                        data = src_data[tag].popleft()
                         any_tag_data.update({(source, tag) : data})
 
                         return any_tag_data
@@ -136,8 +143,12 @@ class ZComm(object):
                         if tag_data is None:
                             time.sleep(0.005)
                             continue
-                        del src_data[tag]
-                        return {(source, tag): tag_data} 
+                        # if no more data with this tag remove it.
+                        if len(tag_data) == 0:
+                            del src_data[tag]
+
+                        # popping the first one
+                        return {(source, tag): tag_data.popleft()} 
 
             except Exception as _e:
                 #logging.error(f'[RANK {self.rank}] Exception: {e} ')
@@ -189,5 +200,5 @@ class ZComm(object):
             time.sleep(0.005)
 
         any_src = self.msg_queue[0]
-        # logging.debug(f"Data is {self.data}"
+        #logging.debug(f"Data is {self.data}")
         return self.recv(any_src, tag)

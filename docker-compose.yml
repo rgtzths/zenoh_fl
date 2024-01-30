@@ -9,10 +9,6 @@ services:
     image: federated_learning
     ports: 
       - "22"
-    links: 
-      - worker1
-      - worker2
-      # - worker3
     environment:
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1

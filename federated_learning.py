@@ -8,6 +8,7 @@ from ZENOH.centralized_async import run as zenoh_centralized_async
 from ZENOH.centralized_sync import run as zenoh_centralized_sync
 from ZENOH.decentralized_async import run as zenoh_decentralized_async
 from ZENOH.decentralized_sync import run as zenoh_decentralized_sync
+from ZENOH.debug import run as zenoh_debug
 
 from config import DATASETS, OPTIMIZERS
 
@@ -54,3 +55,5 @@ else:
             zenoh_decentralized_async(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.a,args.p, args.md,  args.nw, args.wid)
         case 4:
             zenoh_decentralized_sync(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.p, args.md, args.nw, args.wid)
+        # case 5:
+        #     zenoh_debug(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.a,args.p, args.md, 1, args.wid)
