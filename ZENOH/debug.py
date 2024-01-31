@@ -53,7 +53,7 @@ def run(
 
         r = 0 
         while r<80:
-            data = comm.recv(source=ANY_SRC, tag=321)
+            data = comm.recv(source=ANY_SRC, tag=ANY_TAG)
             for (s, t), value in data.items():
                 logging.info(f'[RANK: {rank}] Received = Sender: {s} - Tag: {t}, Data={value}')
                 r+=1
@@ -70,7 +70,7 @@ def run(
                     flag = False
         time.sleep(5)
         for i in range(0, 20):
-            comm.send(data=i, dest=0, tag=321)
+            comm.send(data=i, dest=0, tag=(10*rank))
             time.sleep(random.random())
 
     logging.info(f'[RANK: {rank}] Done')

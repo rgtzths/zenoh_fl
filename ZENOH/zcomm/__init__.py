@@ -126,13 +126,17 @@ class ZComm(object):
                 # logging.debug(f'[RANK {self.rank}] Before Queue: {self.msg_queue} ')
                 index = self.msg_queue.index(source) # This raises an exception
                 # logging.debug(f'[RANK: {self.rank}] Receving from {source} - Index: {index}')
-                del self.msg_queue[index]
+                
                 # logging.debug(f'[RANK {self.rank}] After Queue: {self.msg_queue} ')
                 src_data = self.data.get(source)
                 
                 # This mean whatever tag is ready
                 if tag == ANY_TAG:
-                    tag = src_data.keys()[0]
+                    # looping on no tags
+                    while len(src_data.keys()) == 0:
+                        time.sleep(0.005)
+                    # logging.debug(f'[RANK {self.rank}] SRC TAGS: {src_data.keys()} ')
+                    tag = list(src_data.keys())[0]
                     # call self to retrieve the data with the given tag
                     data = self.recv(source, tag)
                 else:
@@ -143,11 +147,14 @@ class ZComm(object):
                     # if no more data with this tag remove it.
                     if len(tag_data) == 0:
                         del src_data[tag]
+
+                    # removing the processed message
+                    del self.msg_queue[index] 
                     # get the data and end the loop
                     data = {(source, tag): tag_data.popleft()} 
 
-            except Exception as _e:
-                #logging.error(f'[RANK {self.rank}] Exception: {e} ')
+            except Exception as e:
+                # logging.error(f'[RANK {self.rank}] Exception: {e} ')
                 time.sleep(0.005)
                 continue
         return data
