@@ -63,10 +63,10 @@ case $COMM in
                 python3.10 federated_learning.py -m 4 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -ge 300 -c zenoh -nw 4 -wid $RANK
                 sleep 10
                 ;;
-            # 5) 
-            #     python3.10 federated_learning.py -m 5 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -ge 300 -c zenoh -nw 4 -wid $RANK
-            #     sleep 10
-            #     ;;
+            5) 
+                python3.10 federated_learning.py -m 5 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -ge 300 -c zenoh -nw 4 -wid $RANK
+                sleep 10
+                ;;
         esac
         ;;
     *)

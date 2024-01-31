@@ -114,46 +114,43 @@ class ZComm(object):
                 time.sleep(0.05)
 
     def recv(self, source, tag):
-        #logging.debug(f'[RANK: {self.rank}] Receving from {source} - Tag: {tag}')
+        # logging.debug(f'[RANK: {self.rank}] Receving from {source} - Tag: {tag}')
         if source == ALL_SRC:
             return self.recv_from_all(tag)
         elif source == ANY_SRC:
             return self.recv_from_any(tag)
 
-        while True:
-            try: 
-                #logging.debug(f'[RANK {self.rank}] Before Queue: {self.msg_queue} ')
-                index = self.msg_queue.index(source)
-                #logging.debug(f'[RANK: {self.rank}] Receving from {source} - Index: {index}')
+        data = None
+        while data is None:
+            try:
+                # logging.debug(f'[RANK {self.rank}] Before Queue: {self.msg_queue} ')
+                index = self.msg_queue.index(source) # This raises an exception
+                # logging.debug(f'[RANK: {self.rank}] Receving from {source} - Index: {index}')
                 del self.msg_queue[index]
-                #logging.debug(f'[RANK {self.rank}] After Queue: {self.msg_queue} ')
+                # logging.debug(f'[RANK {self.rank}] After Queue: {self.msg_queue} ')
                 src_data = self.data.get(source)
+                
+                # This mean whatever tag is ready
                 if tag == ANY_TAG:
-                    any_tag_data = {}
-                    tags = src_data.keys()
-                    for tag in tags:
-                        data = src_data[tag].popleft()
-                        any_tag_data.update({(source, tag) : data})
-
-                        return any_tag_data
-            
+                    tag = src_data.keys()[0]
+                    # call self to retrieve the data with the given tag
+                    data = self.recv(source, tag)
                 else:
-                    while True:
+                    tag_data = src_data.get(tag) 
+                    while tag_data is None: # if the data is not there wait...
+                        time.sleep(0.005)
                         tag_data = src_data.get(tag)
-                        if tag_data is None:
-                            time.sleep(0.005)
-                            continue
-                        # if no more data with this tag remove it.
-                        if len(tag_data) == 0:
-                            del src_data[tag]
-
-                        # popping the first one
-                        return {(source, tag): tag_data.popleft()} 
+                    # if no more data with this tag remove it.
+                    if len(tag_data) == 0:
+                        del src_data[tag]
+                    # get the data and end the loop
+                    data = {(source, tag): tag_data.popleft()} 
 
             except Exception as _e:
                 #logging.error(f'[RANK {self.rank}] Exception: {e} ')
                 time.sleep(0.005)
                 continue
+        return data
 
     def send(self, dest, data, tag):
         msg = ZCommData(self.rank, dest, tag, data)
@@ -195,10 +192,10 @@ class ZComm(object):
         return data
 
     def recv_from_any(self, tag):
-        any_src = None
+        ready_src = None
         while len(self.msg_queue) == 0:
             time.sleep(0.005)
 
-        any_src = self.msg_queue[0]
+        ready_src = self.msg_queue[0]
         #logging.debug(f"Data is {self.data}")
-        return self.recv(any_src, tag)
+        return self.recv(ready_src, tag)
