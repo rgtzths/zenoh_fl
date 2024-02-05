@@ -63,43 +63,39 @@ def run(
     weighted average of their contributions.
     '''
 
+    weights = 0
+
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : []}}
 
         node_weights = [0]*(n_workers)
-        X_cv, y_cv = dataset_util.load_validation_data()
-
-        val_dataset = tf.data.Dataset.from_tensor_slices(X_cv).batch(batch_size)
 
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
         data = comm.recv(source=ALL_SRC, tag=1000)
         for (source,src_tag), n_examples in data.items():
+            logging.info(f'[RANK {rank}] Received = Sender: {source} - Tag: {src_tag}, Data={n_examples}')
             node_weights[source-1] = n_examples
+            
         
         biggest_n_examples = max(node_weights)
 
         node_weights = [n_examples/biggest_n_examples for n_examples in node_weights]
 
-        results["times"]["sync"].append(time.time() - start)
+        weights = node_weights
 
     else:
-        results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
 
-        X_train, y_train = dataset_util.load_worker_data(n_workers, rank)
-
-        train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
-
-        comm.send(dest=0, data=len(train_dataset), tag=1000)
+        comm.send(dest=0, data=(10*rank), tag=1000)
 
     '''
     Parameter server shares its values so every worker starts from the same point.
     '''
-    model.set_weights(comm.bcast(data=model.get_weights(), root=0, tag=0))
+    
 
-    if rank == 0:
-        results["times"]["sync"].append(time.time() - start)
-   
+    weights = comm.bcast(data=weights, root=0, tag=0)
+    logging.info(f'[RANK: {rank}] BCAST <=> {weights}')
+    
+    time.sleep(5)
 
     logging.info(f'[RANK: {rank}] Starting async comms!')
 

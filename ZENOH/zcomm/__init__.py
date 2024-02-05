@@ -122,8 +122,12 @@ class ZComm(object):
 
         data = None
         while data is None:
+
+
+            
             try:
-                # logging.debug(f'[RANK {self.rank}] Before Queue: {self.msg_queue} ')
+                # logging.debug(f'[RANK {self.rank}] Queue: {self.msg_queue} ')
+                # logging.debug(f'[RANK {self.rank}] Data dict: {self.data} ')
                 index = self.msg_queue.index(source) # This raises an exception
                 # logging.debug(f'[RANK: {self.rank}] Receving from {source} - Index: {index}')
                 
@@ -151,7 +155,12 @@ class ZComm(object):
                     # removing the processed message
                     del self.msg_queue[index] 
                     # get the data and end the loop
-                    data = {(source, tag): tag_data.popleft()} 
+                    queue_data = tag_data.popleft()
+
+                    if len(tag_data) == 0:
+                        del src_data[tag]
+
+                    data = {(source, tag): queue_data} 
 
             except Exception as e:
                 # logging.error(f'[RANK {self.rank}] Exception: {e} ')
