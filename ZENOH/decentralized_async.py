@@ -116,9 +116,7 @@ def run(
 
                 logging.info("Start of epoch %d" % (epoch//n_workers+1))
 
-            #Check how to combine here
             data = comm.recv(source=ANY_SRC, tag=ANY_TAG)
-            logging.info("received a message")
 
             for (source, src_tag), weights in data.items():
                 weight_diffs = [ (weight - local_weights[idx])*alpha*node_weights[source-1]
@@ -171,7 +169,6 @@ def run(
             results["times"]["train"].append(time.time() - train_time)
 
             comm.send(data=model.get_weights(), dest=0, tag=global_epoch)
-            logging.info("sent a message")
 
             data = comm.recv(source=0, tag=global_epoch)
             for (s, t), weight_diffs in data.items():

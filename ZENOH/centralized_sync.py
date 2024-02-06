@@ -148,7 +148,7 @@ def run(
                 results["f1"].append(val_f1)
                 results["mcc"].append(val_mcc)
                 results["times"]["global_times"].append(time.time() - start)
-                logging.info("- val_f1: %f - val_mcc %f - val_acc %f" %(val_f1, val_mcc, val_acc))
+                logging.info("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
                 patience_buffer = patience_buffer[1:]
                 patience_buffer.append(val_mcc)
                 

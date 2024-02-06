@@ -95,10 +95,8 @@ def run(
         latest_tag = 0
 
         for batch in range(total_batches):
-            logging.info(f'[RANK: {rank}] Waiting data!')
 
             data = comm.recv(source=ANY_SRC, tag=ANY_TAG)
-            logging.info(f'[RANK: {rank}] Received data!')
 
             for (source, src_tag), grads in data.items():
 
@@ -111,42 +109,43 @@ def run(
 
                 optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
-                comm.send(data=model.get_weights(), dest=source, tag=src_tag)
+            comm.send(data=model.get_weights(), dest=source, tag=src_tag)
 
-                comm.send(data=stop, dest=source, tag=src_tag)
+            comm.send(data=stop, dest=source, tag=src_tag)
 
-                if stop:
-                    exited_workers +=1
-                if exited_workers == n_workers:
-                    break
+            if stop:
+                exited_workers +=1
 
-                if (batch+1) % total_n_batches == 0 and not stop:
-                    results["times"]["epochs"].append(time.time() - epoch_start)
+            if exited_workers == n_workers:
+                break
 
-                    logging.info(f"End of batch {(batch+1)//n_workers} -> epoch {(batch+1)//total_n_batches}")
+            if (batch+1) % total_n_batches == 0 and not stop:
+                results["times"]["epochs"].append(time.time() - epoch_start)
 
-                    predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
-                    val_f1 = f1_score(y_cv, predictions, average="macro")
-                    val_mcc = matthews_corrcoef(y_cv, predictions)
-                    val_acc = accuracy_score(y_cv, predictions)
+                logging.info(f"End of batch {(batch+1)//n_workers} -> epoch {(batch+1)//total_n_batches}")
 
-                    results["acc"].append(val_acc)
-                    results["f1"].append(val_f1)
-                    results["mcc"].append(val_mcc)
-                    results["times"]["global_times"].append(time.time() - start)
-                    logging.info("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
-                    patience_buffer = patience_buffer[1:]
-                    patience_buffer.append(val_mcc)
+                predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
+                val_f1 = f1_score(y_cv, predictions, average="macro")
+                val_mcc = matthews_corrcoef(y_cv, predictions)
+                val_acc = accuracy_score(y_cv, predictions)
 
-                    p_stop = True
-                    for value in patience_buffer[1:]:
-                        if abs(patience_buffer[0] - value) > min_delta:
-                            p_stop = False 
+                results["acc"].append(val_acc)
+                results["f1"].append(val_f1)
+                results["mcc"].append(val_mcc)
+                results["times"]["global_times"].append(time.time() - start)
+                logging.info("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
+                patience_buffer = patience_buffer[1:]
+                patience_buffer.append(val_mcc)
 
-                    if val_mcc > early_stop or p_stop:
-                        stop = True
+                p_stop = True
+                for value in patience_buffer[1:]:
+                    if abs(patience_buffer[0] - value) > min_delta:
+                        p_stop = False 
 
-                    epoch_start = time.time()
+                if val_mcc > early_stop or p_stop:
+                    stop = True
+
+                epoch_start = time.time()
                         
     else:
         for batch in range(total_batches):
@@ -163,7 +162,6 @@ def run(
             results["times"]["train"].append(time.time() - train_time)
 
             comm.send(data=grads, dest=0, tag=batch)
-            logging.info(f'[RANK: {rank}] Sent data!')
 
             data = comm.recv(source=0, tag=batch)
             for (s, t), v in data.items():
@@ -179,9 +177,9 @@ def run(
 
             if stop:
                 break
-
+            
+    history = json.dumps(results)
     if rank==0:
-        history = json.dumps(results)
         logging.info(f'Saving results in {output}')
         with open(output/"server.json", "w") as f:
             f.write(history)
