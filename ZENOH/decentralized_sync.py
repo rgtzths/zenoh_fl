@@ -37,7 +37,7 @@ def run(
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
 
-    output = f"{dataset}/fl/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}"
+    output = f"/results/{dataset}/fl/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -145,6 +145,7 @@ def run(
 
     history = json.dumps(results)
     if rank==0:
+        logging.info(f'Saving results in {output}')
         model.save(output/'trained_model.keras')
         with open(output/"server.json", "w") as f:
             f.write(history)

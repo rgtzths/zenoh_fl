@@ -42,7 +42,7 @@ def run(
         print(f"Batch size: {batch_size}")
         print(f"Alpha: {alpha}")
 
-    output = f"{dataset}/mpi/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}"
+    output = f"/results/{dataset}/mpi/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)

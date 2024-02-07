@@ -38,7 +38,7 @@ def run(
         print(f"Epochs: {epochs}")
         print(f"Batch size: {batch_size}")
 
-    output = f"{dataset}/mpi/centralized_sync/{n_workers}_{epochs}"
+    output = f"/results/{dataset}/mpi/centralized_sync/{n_workers}_{epochs}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
