@@ -36,7 +36,7 @@ def run(
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
 
-    output = f"/results{dataset}/zenoh/centralized_sync/{n_workers}_{epochs}"
+    output = f"/results/{dataset}/zenoh/centralized_sync/{n_workers}_{epochs}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
