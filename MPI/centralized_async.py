@@ -16,7 +16,8 @@ def run(
     batch_size,
     epochs,
     patience,
-    min_delta
+    min_delta,
+    output
     ):
     
     comm = MPI.COMM_WORLD
@@ -35,7 +36,7 @@ def run(
         print(f"Epochs: {epochs}")
         print(f"Batch size: {batch_size}")
 
-    output = f"/results/{dataset}/mpi/centralized_async/{n_workers}_{epochs}"
+    output = f"{output}/{dataset}/mpi/centralized_async/{n_workers}_{epochs}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -46,7 +47,7 @@ def run(
 
     start = time.time()
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : []}}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [0]*n_workers
 
         X_cv, y_cv = dataset_util.load_validation_data()
@@ -57,29 +58,26 @@ def run(
         #of examples to create a weighted average of the model weights
         for node in range(n_workers):
             n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
-
             node_weights[status.Get_source()-1] = n_examples
         
         total_n_batches = sum(node_weights)
         total_batches = epochs * total_n_batches
 
-        node_weights = [weight/total_n_batches for weight in node_weights]
-        results["times"]["sync"].append(time.time() - start)
-        
+        node_weights = [weight/total_n_batches for weight in node_weights]        
         model_weights = model.get_weights()
 
     else:
-        results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
+        results = {"times" : {"train" : [], "epochs" : []}}
 
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)
 
         train_dataset = list(tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size))
 
-        comm.send(len(train_dataset), dest=0, tag=1000)
+        comm.isend(len(train_dataset), dest=0, tag=1000)
 
         total_batches = epochs * len(train_dataset)
     
-    comm.bcast(model_weights, root=0)
+    model_weights = comm.bcast(model_weights, root=0)
 
     if rank != 0:
         model.set_weights(model_weights)
@@ -105,10 +103,12 @@ def run(
             optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
             comm.send(model.get_weights(), dest=source, tag=tag)
-            comm.send(stop, dest=source, tag=tag)
+
+            comm.isend(stop, dest=source, tag=tag)
 
             if stop:
-                exited_workers +=1
+                exited_workers += 1
+
             if exited_workers == n_workers:
                 break
 
@@ -156,11 +156,13 @@ def run(
             grads = tape.gradient(loss_value, model.trainable_weights)
             results["times"]["train"].append(time.time() - train_time)
 
-            comm.send(grads, dest=0, tag=batch)
+            comm.isend(grads, dest=0, tag=batch)
 
-            model.set_weights(comm.recv(source=0, tag=batch))
+            model_weights = comm.recv(source=0, tag=batch)
 
             stop = comm.recv(source=0, tag=batch)
+
+            model.set_weights(model_weights)
 
             if (batch+1) % len(train_dataset) == 0:
                 results["times"]["epochs"].append(time.time() - epoch_start)

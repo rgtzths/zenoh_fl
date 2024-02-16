@@ -32,14 +32,15 @@ def run(
     patience,
     min_delta,
     n_workers,
-    rank
+    rank,
+    output
 ):
 
     stop = False
     dataset = dataset_util.name
     patience_buffer = [0]*patience
 
-    output = f"/results/{dataset}/zenoh/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}"
+    output = f"{output}/{dataset}/zenoh/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -50,6 +51,8 @@ def run(
         loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
+
+    model_weights = None
 
     start = time.time()
     comm = ZComm(rank, n_workers)
@@ -65,7 +68,7 @@ def run(
     '''
 
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : []}}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
 
         node_weights = [0]*(n_workers)
         X_cv, y_cv = dataset_util.load_validation_data()
@@ -82,10 +85,9 @@ def run(
 
         node_weights = [n_examples/biggest_n_examples for n_examples in node_weights]
 
-        results["times"]["sync"].append(time.time() - start)
-
+        model_weights = model.get_weights()
     else:
-        results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
+        results = {"times" : {"train" : [], "epochs" : []}}
 
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)
 
@@ -96,10 +98,10 @@ def run(
     '''
     Parameter server shares its values so every worker starts from the same point.
     '''
-    model.set_weights(comm.bcast(data=model.get_weights(), root=0, tag=0))
+    model_weights = comm.bcast(data=model_weights, root=0, tag=0)
 
-    if rank == 0:
-        results["times"]["sync"].append(time.time() - start)
+    if rank != 0:
+        model.set_weights(model_weights)
 
     '''
     Training starts.
@@ -131,6 +133,7 @@ def run(
 
             if stop:
                 exited_workers +=1
+
             if exited_workers == n_workers:
                 break
 
@@ -171,18 +174,19 @@ def run(
             comm.send(data=model.get_weights(), dest=0, tag=global_epoch)
 
             data = comm.recv(source=0, tag=global_epoch)
-            for (s, t), weight_diffs in data.items():
-
-                weights = [weight - weight_diffs[idx]
-                                for idx, weight in enumerate(model.get_weights())]
-                
-                model.set_weights(weights)    
-            
-            results["times"]["epochs"].append(time.time() - epoch_start)
+            for (s, t), value in data.items():
+                weight_diffs = value
 
             data = comm.recv(source=0, tag=global_epoch)
             for (s, t), value in data.items():
                 stop = value
+
+            weights = [weight - weight_diffs[idx]
+                            for idx, weight in enumerate(model.get_weights())]
+            
+            model.set_weights(weights)    
+            
+            results["times"]["epochs"].append(time.time() - epoch_start)
 
             if stop:
                 break

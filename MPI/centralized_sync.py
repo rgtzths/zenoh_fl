@@ -16,19 +16,18 @@ def run(
     batch_size,
     epochs,
     patience,
-    min_delta
+    min_delta,
+    output
 ):
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     n_workers = comm.Get_size()-1
     status = MPI.Status()
-    pickle =  MPI.Pickle()
     stop = False
-    stop_buff = bytearray(pickle.dumps(stop))
-
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
+    model_weights = None
 
 
     if rank == 0:
@@ -38,7 +37,7 @@ def run(
         print(f"Epochs: {epochs}")
         print(f"Batch size: {batch_size}")
 
-    output = f"/results/{dataset}/mpi/centralized_sync/{n_workers}_{epochs}"
+    output = f"{output}/{dataset}/mpi/centralized_sync/{n_workers}_{epochs}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -49,21 +48,17 @@ def run(
 
     start = time.time()
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : []}}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [0]*n_workers
 
         X_cv, y_cv = dataset_util.load_validation_data()
         
         val_dataset = tf.data.Dataset.from_tensor_slices((X_cv, y_cv)).batch(batch_size)
 
-        size_buff = bytearray(pickle.dumps(len(X_cv)))
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
-
         for node in range(n_workers):
-            comm.Recv(size_buff, source=MPI.ANY_SOURCE, tag=1000, status=status)
-            n_examples = pickle.loads(size_buff)
-    
+            n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
             node_weights[status.Get_source()-1] = n_examples
         
         sum_n_batches = sum(node_weights)
@@ -71,58 +66,32 @@ def run(
         total_batches = epochs * total_n_batches
 
         node_weights = [weight/sum_n_batches for weight in node_weights]
-        results["times"]["sync"].append(time.time() - start)
-        model_buff = bytearray(pickle.dumps(model.get_weights()))
+        model_weights = model.get_weights()
 
     else:
-        results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
+        results = {"times" : {"train" : [], "epochs" : []}}
 
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)
 
         train_dataset = list(tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size))
 
-        compr_data = pickle.dumps(len(train_dataset))
-
-        comm.Send(compr_data, dest=0, tag=1000)
+        comm.isend(len(train_dataset), dest=0, tag=1000)
 
         total_n_batches = len(train_dataset)
         total_batches = epochs * total_n_batches
 
-        model_buff = bytearray(pickle.dumps(model.get_weights()))
 
-    comm.Bcast(model_buff, root=0)
+    model_weights = comm.bcast(model_weights, root=0)
 
     if rank != 0:
-        weights = pickle.loads(model_buff)
-
-        model.set_weights(weights)
-    else:
-        results["times"]["sync"].append(time.time() - start)
-
-        #Get gradient size
-        x_batch, y_batch = list(val_dataset.take(1))[0]
-
-        with tf.GradientTape() as tape:
-
-            logits = model(x_batch, training=True)
-            loss_value = loss_fn(y_batch, logits)
-
-        grads_buff = bytearray(pickle.dumps(tape.gradient(loss_value, model.trainable_weights)))
+        model.set_weights(model_weights)
 
     epoch_start = time.time()
     for batch in range(total_batches):
-        weights = []
         if rank == 0:
             avg_grads = []
             for _ in range(n_workers):
-
-                com_time = time.time()
-                comm.Recv(grads_buff, source=MPI.ANY_SOURCE, tag=batch, status=status)
-                results["times"]["comm_recv"].append(time.time() - com_time)
-
-                load_time = time.time()
-                grads = pickle.loads(grads_buff)
-                results["times"]["conv_recv"].append(time.time() - load_time)
+                grads = comm.recv(source=MPI.ANY_SOURCE, tag=batch, status=status)
 
                 source = status.Get_source()
 
@@ -134,10 +103,8 @@ def run(
             
             optimizer.apply_gradients(zip(avg_grads, model.trainable_weights))
 
-            load_time = time.time()
-            model_buff = bytearray(pickle.dumps(model.get_weights()))
-            results["times"]["conv_send"].append(time.time()- load_time)
-            
+            model_weights = model.get_weights()    
+
         else:
             train_time = time.time()
 
@@ -151,35 +118,14 @@ def run(
             grads = tape.gradient(loss_value, model.trainable_weights)
             results["times"]["train"].append(time.time() - train_time)
 
-            load_time = time.time()
-            grads = pickle.dumps(grads)
-            results["times"]["conv_send"].append(time.time() - load_time)
-            
-            comm_time = time.time()
-            comm.Send(grads, dest=0, tag=batch)
-            results["times"]["comm_send"].append(time.time() - comm_time)
+            comm.isend(grads, dest=0, tag=batch)
 
-        com_time = time.time()
-        comm.Bcast(model_buff, root=0)
+        model_weights = comm.bcast(model_weights, root=0)
 
-        if rank == 0:
-            results["times"]["comm_send"].append(time.time() - com_time)
-        else:
-            results["times"]["comm_recv"].append(time.time() - com_time)
-
-            conv_time = time.time()
-            weights = pickle.loads(model_buff)
-            results["times"]["conv_recv"].append(time.time() - conv_time)
-
-            model.set_weights(weights)
-        
-        if rank == 0:
-                stop_buff = bytearray(pickle.dumps(stop))
-
-        comm.Bcast(stop_buff, root=0)
+        stop = comm.bcast(stop, root=0)
 
         if rank != 0:
-            stop = pickle.loads(stop_buff)
+            model.set_weights(model_weights)
 
         if stop:
             break

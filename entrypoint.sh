@@ -23,19 +23,19 @@ case $COMM in
 
             case $TEST in
                 1)  
-                    mpirun -np 5 -hostfile host_file python3.10 federated_learning.py -m 1 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -c mpi
+                    mpirun -np 5 -hostfile host_file python3.10 federated_learning.py -m 1 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -c mpi -f /results
                     sleep 10
                     ;;
                 2)
-                    mpirun -np 5 -hostfile host_file python3.10 federated_learning.py -m 2 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -c mpi
+                    mpirun -np 5 -hostfile host_file python3.10 federated_learning.py -m 2 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -c mpi -f /results
                     sleep 10
                     ;;
                 3)  
-                    mpirun -np 5 -hostfile host_file python3.10 federated_learning.py -m 3 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -ge 300 -c mpi
+                    mpirun -np 5 -hostfile host_file python3.10 federated_learning.py -m 3 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -ge 300 -c mpi -f /results
                     sleep 10
                     ;;
                 4)
-                    mpirun -np 5 -hostfile host_file python3.10 federated_learning.py -m 4 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -ge 300 -c mpi
+                    mpirun -np 5 -hostfile host_file python3.10 federated_learning.py -m 4 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -ge 300 -c mpi -f /results
                     sleep 10
                     ;;
             esac
@@ -48,23 +48,23 @@ case $COMM in
         
         case $TEST in
             1)
-                python3.10 federated_learning.py -m 1 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -c zenoh -nw 4 -wid $RANK
+                python3.10 federated_learning.py -m 1 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -c zenoh -nw 4 -wid $RANK -f /results
                 sleep 10
                 ;;
             2)
-                python3.10 federated_learning.py -m 2 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -c zenoh -nw 4 -wid $RANK
+                python3.10 federated_learning.py -m 2 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -c zenoh -nw 4 -wid $RANK -f /results
                 sleep 10
                 ;;
             3)  
-                python3.10 federated_learning.py -m 3 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -ge 300 -c zenoh -nw 4 -wid $RANK
+                python3.10 federated_learning.py -m 3 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -ge 300 -c zenoh -nw 4 -wid $RANK -f /results
                 sleep 10
                 ;;
             4)  
-                python3.10 federated_learning.py -m 4 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -ge 300 -c zenoh -nw 4 -wid $RANK
+                python3.10 federated_learning.py -m 4 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -ge 300 -c zenoh -nw 4 -wid $RANK -f /results
                 sleep 10
                 ;;
             5) 
-                python3.10 federated_learning.py -m 5 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -ge 300 -c zenoh -nw 4 -wid $RANK
+                python3.10 federated_learning.py -m 5 -d IOT_DNL -lr 0.000005 -b 1024 -s 0.96 -ge 300 -c zenoh -nw 4 -wid $RANK -f /results
                 sleep 10
                 ;;
         esac

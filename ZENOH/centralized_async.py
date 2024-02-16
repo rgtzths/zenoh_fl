@@ -28,14 +28,16 @@ def run(
     patience,
     min_delta,
     n_workers,
-    rank):
+    rank,
+    output
+    ):
 
     stop = False
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
 
 
-    output = f"/results/{dataset}/zenoh/centralized_async/{n_workers}_{epochs}"
+    output = f"{output}/{dataset}/zenoh/centralized_async/{n_workers}_{epochs}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -51,9 +53,10 @@ def run(
     logging.info(f'[RANK: {rank}] Waiting nodes...')
     comm.wait(n_workers+1)
     logging.info(f'[RANK: {rank}] Nodes up!')
+    model_weights = None
 
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : []}}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [0]*n_workers
 
         X_cv, y_cv = dataset_util.load_validation_data()
@@ -70,10 +73,9 @@ def run(
         total_batches = epochs * total_n_batches
 
         node_weights = [weight/total_n_batches for weight in node_weights]
-        results["times"]["sync"].append(time.time() - start)
-
+        model_weights = model.get_weights()
     else:
-        results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
+        results = {"times" : {"train" : [], "epochs" : []}}
 
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)
 
@@ -83,11 +85,11 @@ def run(
 
         total_batches = epochs * len(train_dataset)
 
-    model.set_weights(comm.bcast(data=model.get_weights(), root=0, tag=0))
+    model_weights = comm.bcast(data=model_weights, root=0, tag=0)
 
+    if rank != 0:
+        model.set_weights(model_weights)
 
-    if rank == 0:
-        results["times"]["sync"].append(time.time() - start)
     epoch_start = time.time()
     if rank == 0:
 

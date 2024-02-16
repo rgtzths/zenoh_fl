@@ -29,14 +29,15 @@ def run(
     patience,
     min_delta,
     n_workers,
-    rank
+    rank,
+    output
 ):
 
     stop = False
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
 
-    output = f"/results/{dataset}/zenoh/centralized_sync/{n_workers}_{epochs}"
+    output = f"{output}/{dataset}/zenoh/centralized_sync/{n_workers}_{epochs}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -44,6 +45,8 @@ def run(
     model = dataset_util.create_model()
     optimizer = optimizer(learning_rate=learning_rate)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
+    model_weights = None
+
 
     start = time.time()
     comm = ZComm(rank, n_workers)
@@ -53,7 +56,7 @@ def run(
     logging.info(f'[RANK: {rank}] Nodes up!')
 
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : [], "loads" : []}}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [0]*n_workers
         X_cv, y_cv = dataset_util.load_validation_data()
         
@@ -61,26 +64,18 @@ def run(
 
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
-        # for node in range(n_workers):
-            
-            # n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
-            # node_weights[status.Get_source()-1] = n_examples
         data = comm.recv(source=ALL_SRC, tag=1000)
         for (k, _tag), v in data.items():
             node_weights[k-1] = v
-        # print(f'[RANK: {rank}] node_weights: {node_weights}!')
         
         sum_n_batches = sum(node_weights)
         total_n_batches = max(node_weights)
         total_batches = epochs * total_n_batches
 
         node_weights = [weight/sum_n_batches for weight in node_weights]
-
-        results["times"]["sync"].append(time.time() - start)
-
-
+        model_weights = model.get_weights()
     else:
-        results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
+        results = {"times" : {"train" : [], "epochs" : []}}
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)
 
         train_dataset = list(tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size))
@@ -90,11 +85,11 @@ def run(
 
         comm.send(dest=0, data=total_n_batches, tag=1000)
 
-    model.set_weights(comm.bcast(data=model.get_weights(), root=0, tag=0))
+    model_weights = comm.bcast(data=model_weights, root=0, tag=0)
 
-    if rank == 0:
-        results["times"]["sync"].append(time.time() - start)
-
+    if rank != 0:
+        model.set_weights(model_weights)
+        
     epoch_start = time.time()
     for batch in range(total_batches):
         weights = []
@@ -110,7 +105,7 @@ def run(
                     avg_grads = [ avg_grads[i] + grads[i]*node_weights[source-1] for i in range(len(grads))]
 
             optimizer.apply_gradients(zip(avg_grads, model.trainable_weights))
-            weights = model.get_weights()
+            model_weights = model.get_weights()
             
         else:
             train_time = time.time()
@@ -127,13 +122,16 @@ def run(
 
             comm.send(data=grads, tag=batch, dest=0)
 
-        model.set_weights(comm.bcast(data=weights, root=0, tag=0))
+        model_weights = comm.bcast(data=model_weights, root=0, tag=0)
 
         stop = comm.bcast(data=stop, root=0, tag=0)
 
         if stop:
             break
         
+        if rank != 0:
+            model.set_weights(model_weights)
+
         if (batch+1) % total_n_batches == 0:
 
             if rank == 0:

@@ -28,6 +28,7 @@ parser.add_argument("-md", help="Minimum Delta", default=0.005, type=float)
 parser.add_argument("-a", help="Updated bound for the master/worker", default=0.2, type=float)
 parser.add_argument("-nw", help="Number of workers (for zenoh)", default=4, type=int)
 parser.add_argument("-wid", help="Worker id (for zenoh)", default=0, type=int)
+parser.add_argument("-f", help="Output folder", default="results", type=str)
 args = parser.parse_args()
 
 if args.d not in DATASETS.keys():
@@ -38,22 +39,22 @@ if args.o not in OPTIMIZERS.keys():
 if args.c == "mpi":
     match args.m:
         case 1:
-            mpi_centralized_async(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.e, args.p, args.md)
+            mpi_centralized_async(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.e, args.p, args.md, args.f)
         case 2:
-            mpi_centralized_sync(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.e, args.p, args.md)
+            mpi_centralized_sync(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.e, args.p, args.md, args.f)
         case 3:
-            mpi_decentralized_async(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.a, args.p, args.md)
+            mpi_decentralized_async(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.a, args.p, args.md, args.f)
         case 4:
-            mpi_decentralized_sync(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.p, args.md)
+            mpi_decentralized_sync(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.p, args.md, args.f)
 else:
     match args.m:
         case 1:
-            zenoh_centralized_async(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.e, args.p, args.md, args.nw, args.wid)
+            zenoh_centralized_async(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.e, args.p, args.md, args.nw, args.wid, args.f)
         case 2:
-            zenoh_centralized_sync(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.e, args.p, args.md, args.nw, args.wid)
+            zenoh_centralized_sync(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.e, args.p, args.md, args.nw, args.wid, args.f)
         case 3:
-            zenoh_decentralized_async(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.a,args.p, args.md,  args.nw, args.wid)
+            zenoh_decentralized_async(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.a,args.p, args.md,  args.nw, args.wid, args.f)
         case 4:
-            zenoh_decentralized_sync(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.p, args.md, args.nw, args.wid)
+            zenoh_decentralized_sync(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.p, args.md, args.nw, args.wid, args.f)
         case 5:
-            zenoh_debug(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.a,args.p, args.md, args.nw, args.wid)
+            zenoh_debug(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.a,args.p, args.md, args.nw, args.wid, args.f)

@@ -78,3 +78,4 @@ services:
       - COMM=${COMM}
     volumes:
       - ./ZENOH:/root/ZENOH
+      - ./MPI:/root/MPI

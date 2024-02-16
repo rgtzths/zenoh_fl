@@ -30,14 +30,15 @@ def run(
     patience,
     min_delta,
     n_workers,
-    rank
+    rank,
+    output
 ):
 
     stop = False
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
 
-    output = f"/results/{dataset}/zenoh/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}"
+    output = f"{output}/{dataset}/zenoh/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -48,6 +49,7 @@ def run(
         loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
+    model_weights = None
 
     start = time.time()
     comm = ZComm(rank, n_workers)
@@ -57,7 +59,7 @@ def run(
     logging.info(f'[RANK: {rank}] Nodes up!')
 
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : []}}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [0]*(n_workers)
         X_cv, y_cv = dataset_util.load_validation_data()
 
@@ -72,19 +74,20 @@ def run(
         total_size = sum(node_weights)
 
         node_weights = [weight/total_size for weight in node_weights]
-        results["times"]["sync"].append(time.time() - start)
+
+        model_weights = model.get_weights()
 
     else:
-        results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
+        results = {"times" : {"train" : [], "epochs" : []}}
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)        
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
         comm.send(dest=0, tag=1000, data=len(train_dataset))
 
-    model.set_weights(comm.bcast(data=model.get_weights(), root=0, tag=-10))
+    model_weights = comm.bcast(data=model_weights, root=0, tag=-10)
 
-    if rank == 0:
-        results["times"]["sync"].append(time.time() - start)
+    if rank != 0:
+        model.set_weights(model_weights)
 
     for global_epoch in range(global_epochs):
         epoch_start = time.time()
@@ -100,7 +103,7 @@ def run(
                     avg_weights = [ weight * node_weights[source-1] for weight in weights]
                 else:
                     avg_weights = [ avg_weights[i] + weights[i] * node_weights[source-1] for i in range(len(weights))]
-            
+
         else:
             train_time = time.time()
             model.fit(train_dataset, epochs=local_epochs, verbose=0)
@@ -108,16 +111,15 @@ def run(
             comm.send(dest=0, tag=global_epoch, data=model.get_weights())
 
         model.set_weights(comm.bcast(data=avg_weights, root=0, tag=-10))
+        stop = comm.bcast(data=stop, root=0, tag=-10)
+
+        
 
         if rank != 0:
             results["times"]["epochs"].append(time.time() - epoch_start)
-
-        stop = comm.bcast(data=stop, root=0, tag=-10)
-
-        if stop:
-            break
-
-        if rank == 0:
+            if stop:
+                break
+        else:
             
             results["times"]["epochs"].append(time.time() - start)
 
@@ -135,6 +137,9 @@ def run(
             patience_buffer.append(val_mcc)
             logging.info("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
             
+            if stop:
+                break
+
             p_stop = True
             for value in patience_buffer[1:]:
                 if abs(patience_buffer[0] - value) > min_delta:
@@ -142,6 +147,7 @@ def run(
 
             if (val_mcc > early_stop or p_stop) and global_epoch > 10:
                 stop = True
+        
 
     history = json.dumps(results)
     if rank==0:

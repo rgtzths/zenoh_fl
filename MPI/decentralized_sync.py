@@ -17,16 +17,16 @@ def run(
     global_epochs, 
     local_epochs,
     patience,
-    min_delta
+    min_delta,
+    output
 ):
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     n_workers = comm.Get_size()-1
     status = MPI.Status()
-    pickle =  MPI.Pickle()
     stop = False
-    stop_buff = bytearray(pickle.dumps(stop))
+    model_weights = None
 
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
@@ -39,7 +39,7 @@ def run(
         print(f"Local epochs: {local_epochs}")
         print(f"Batch size: {batch_size}")
 
-    output = f"/results/{dataset}/mpi/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}"
+    output = f"{output}/{dataset}/mpi/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -50,51 +50,41 @@ def run(
         loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
-    model_buff = bytearray(pickle.dumps(model.get_weights()))
 
     start = time.time()
 
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : []}}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [0]*(n_workers)
         X_cv, y_cv = dataset_util.load_validation_data()
 
         val_dataset = tf.data.Dataset.from_tensor_slices(X_cv).batch(batch_size)
-        size_buff = bytearray(pickle.dumps(len(X_cv)))
 
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
         for node in range(n_workers):
-            comm.Recv(size_buff, source=MPI.ANY_SOURCE, tag=1000, status=status)
-
-            n_examples = pickle.loads(size_buff)
-
+            n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
             node_weights[status.Get_source()-1] = n_examples
-        
+
         total_size = sum(node_weights)
 
         node_weights = [weight/total_size for weight in node_weights]
 
-        results["times"]["sync"].append(time.time() - start)
-        model_buff = bytearray(pickle.dumps(model.get_weights()))
+        model_weights = model.get_weights()
+
     else:
-        results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
+        results = {"times" : {"train" : [], "epochs" : []}}
 
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)        
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
 
-        compr_data = pickle.dumps(len(X_train))
+        comm.isend(len(train_dataset), dest=0, tag=1000)
 
-        comm.Send(compr_data, dest=0, tag=1000)
-        model_buff = bytearray(len(model_buff) + 10000)
-
-    comm.Bcast(model_buff, root=0)
+    model_weights = comm.bcast(model_weights, root=0)
 
     if rank != 0:
-        model.set_weights(pickle.loads(model_buff))
-    else:
-        results["times"]["sync"].append(time.time() - start)
+        model.set_weights(model_weights)
 
     for global_epoch in range(global_epochs):
         avg_weights = []
@@ -104,64 +94,34 @@ def run(
             print("\nStart of epoch %d" % (global_epoch+1))
 
             for _ in range(n_workers):
-                com_time = time.time()
-                comm.Recv(model_buff, source=MPI.ANY_SOURCE, tag=global_epoch, status=status)
-                results["times"]["comm_recv"].append(time.time() - com_time)
-                
-                load_time = time.time()
-                weights = pickle.loads(model_buff)
-                results["times"]["conv_recv"].append(time.time() - load_time)
+                weights = comm.recv(source=MPI.ANY_SOURCE, tag=global_epoch, status=status)
 
                 source = status.Get_source()
+
                 if not avg_weights:
                     avg_weights = [ weight * node_weights[source-1] for weight in weights]
                 else:
                     avg_weights = [ avg_weights[i] + weights[i] * node_weights[source-1] for i in range(len(weights))]
-                
-            load_time = time.time()
-            model_buff = bytearray(pickle.dumps(avg_weights))
-            results["times"]["conv_send"].append(time.time()- load_time)
-            
+                            
         else:
             train_time = time.time()
             model.fit(train_dataset, epochs=local_epochs, verbose=0)
             results["times"]["train"].append(time.time() - train_time)
-            load_time = time.time()
-            weights = pickle.dumps(model.get_weights())
-            results["times"]["conv_send"].append(time.time() - load_time)
-            
-            comm_time = time.time()
-            comm.Send(weights, dest=0, tag=global_epoch)
-            results["times"]["comm_send"].append(time.time() - comm_time)
 
-        com_time = time.time()
-        comm.Bcast(model_buff, root=0)
+            comm.isend(model.get_weights(), dest=0, tag=global_epoch)
 
-        if rank == 0:
-            results["times"]["comm_send"].append(time.time() - com_time)
+        avg_weights = comm.bcast(avg_weights, root=0)
 
-        else:
-            results["times"]["comm_recv"].append(time.time() - com_time)
+        stop = comm.bcast(stop, root=0)
 
-            conv_time = time.time()
-            avg_weights = pickle.loads(model_buff)
-            results["times"]["conv_recv"].append(time.time() - conv_time)
-
+        
+    
+        if rank != 0:
             model.set_weights(avg_weights)
             results["times"]["epochs"].append(time.time() - epoch_start)
-        
-        if rank == 0:
-            stop_buff = bytearray(pickle.dumps(stop))
-
-        comm.Bcast(stop_buff, root=0)
-
-        if rank != 0:
-            stop = pickle.loads(stop_buff)
-
-        if stop:
-            break
-
-        if rank == 0:
+            if stop:
+                break
+        else:
 
             results["times"]["epochs"].append(time.time() - epoch_start)
 
@@ -180,7 +140,8 @@ def run(
             patience_buffer = patience_buffer[1:]
             patience_buffer.append(val_mcc)
             print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
-            
+            if stop:
+                break
             p_stop = True
             for value in patience_buffer[1:]:
                 if abs(patience_buffer[0] - value) > min_delta:

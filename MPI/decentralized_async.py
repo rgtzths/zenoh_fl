@@ -18,19 +18,18 @@ def run(
     local_epochs, 
     alpha,
     patience,
-    min_delta
+    min_delta,
+    output
 ):
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     n_workers = comm.Get_size()-1
     status = MPI.Status()
-    pickle =  MPI.Pickle()
     stop = False
-    stop_buff = bytearray(pickle.dumps(stop))
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
-
+    model_weights = None
 
 
     if rank == 0:
@@ -42,7 +41,7 @@ def run(
         print(f"Batch size: {batch_size}")
         print(f"Alpha: {alpha}")
 
-    output = f"/results/{dataset}/mpi/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}"
+    output = f"{output}/{dataset}/mpi/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -53,7 +52,6 @@ def run(
         loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
-    model_buff = bytearray(pickle.dumps(model.get_weights()))
 
     start = time.time()
 
@@ -63,7 +61,7 @@ def run(
     weighted average of their contributions.
     '''
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "sync" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "global_times" : []}}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
 
         node_weights = [0]*(n_workers)
         
@@ -71,46 +69,33 @@ def run(
 
         val_dataset = tf.data.Dataset.from_tensor_slices(X_cv).batch(batch_size)
 
-        size_buff = bytearray(pickle.dumps(len(X_cv)))
-
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
         for _ in range(n_workers):
-            status = MPI.Status()
-            comm.Recv(size_buff, source=MPI.ANY_SOURCE, tag=1000, status=status)
-            n_examples = pickle.loads(size_buff)
-
+            n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
             node_weights[status.Get_source()-1] = n_examples
         
         biggest_n_examples = max(node_weights)
 
         node_weights = [n_examples/biggest_n_examples for n_examples in node_weights]
-
-        results["times"]["sync"].append(time.time() - start)
-        model_buff = bytearray(pickle.dumps(model.get_weights()))
+        model_weights = model.get_weights()
 
     else:
-        results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
+        results = {"times" : {"train" : [], "epochs" : []}}
 
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
 
-        compr_data = pickle.dumps(len(X_train))
-
-        comm.Send(compr_data, dest=0, tag=1000)
+        comm.isend(len(train_dataset), dest=0, tag=1000)
 
     '''
     Parameter server shares its values so every worker starts from the same point.
     '''
-    comm.Bcast(model_buff, root=0)
+    model_weights = comm.bcast(model_weights, root=0)
 
     if rank != 0:
-        weights = pickle.loads(model_buff)
-
-        model.set_weights(weights)
-    else:
-        results["times"]["sync"].append(time.time() - start)
+        model.set_weights(model_weights)
 
     '''
     Training starts.
@@ -129,13 +114,7 @@ def run(
             
             #This needs to be changed to the correct formula
             
-            com_time = time.time()
-            comm.Recv(model_buff, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
-            results["times"]["comm_recv"].append(time.time() - com_time)
-
-            load_time = time.time()
-            weights = pickle.loads(model_buff)
-            results["times"]["conv_recv"].append(time.time() - load_time)
+            weights = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
 
             source = status.Get_source()
             tag = status.Get_tag()
@@ -147,16 +126,9 @@ def run(
             local_weights = [local_weights[idx] + weight
                             for idx, weight in enumerate(weight_diffs)]
             
-            load_time = time.time()
-            weights = pickle.dumps(weight_diffs)
-            results["times"]["conv_send"].append(time.time() - load_time)
-            
-            comm_time = time.time()
-            comm.Send(weights, dest=source, tag=tag)
-            results["times"]["comm_send"].append(time.time() - comm_time)
+            comm.send(weight_diffs, dest=source, tag=tag)
 
-            stop_buff = bytearray(pickle.dumps(stop))
-            comm.Send(stop_buff, dest=source, tag=tag)
+            comm.isend(stop, dest=source, tag=tag)
             
             if stop:
                 exited_workers +=1
@@ -197,21 +169,11 @@ def run(
             model.fit(train_dataset, epochs=local_epochs, verbose=0)
             results["times"]["train"].append(time.time() - train_time)
 
-            load_time = time.time()
-            weights = pickle.dumps(model.get_weights())
-            results["times"]["conv_send"].append(time.time() - load_time)
-            
-            comm_time = time.time()
-            comm.Send(weights, dest=0, tag=global_epoch)
-            results["times"]["comm_send"].append(time.time() - comm_time)
+            comm.isend(model.get_weights(), dest=0, tag=global_epoch)
 
-            com_time = time.time()
-            comm.Recv(model_buff, source=0, tag=global_epoch)
-            results["times"]["comm_recv"].append(time.time() - com_time)
+            weight_diffs = comm.recv(source=0, tag=global_epoch)
 
-            load_time = time.time()
-            weight_diffs = pickle.loads(model_buff)
-            results["times"]["conv_recv"].append(time.time() - load_time)
+            stop = comm.recv(source=0, tag=global_epoch)
 
             weights = [weight - weight_diffs[idx]
                             for idx, weight in enumerate(model.get_weights())]
@@ -220,11 +182,9 @@ def run(
             
             results["times"]["epochs"].append(time.time() - epoch_start)
 
-            comm.Recv(stop_buff, source=0, tag=global_epoch)
-            stop = pickle.loads(stop_buff)
-
             if stop:
                 break
+
     history = json.dumps(results)
     if rank==0:
         model.save(output/'trained_model.keras')

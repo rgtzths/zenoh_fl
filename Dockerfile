@@ -11,8 +11,6 @@ RUN mkdir /var/run/sshd
 
 RUN cd /tmp && wget https://bootstrap.pypa.io/get-pip.py && python3.10 get-pip.py
 
-RUN pip3 install mpi4py scikit-learn
-
 WORKDIR ${HOME}
 
 RUN ssh-keygen -t rsa -f ${HOME}/.ssh/id_rsa
@@ -26,7 +24,7 @@ WORKDIR ${HOME}
 
 COPY . .
 
-RUN pip3 install -r ZENOH/requirements.txt
+RUN pip3 install -r requirements.txt
 
 RUN chmod +x ${HOME}/federated_learning.py
 RUN chmod +x ${HOME}/entrypoint.sh
