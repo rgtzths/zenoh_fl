@@ -23,11 +23,10 @@ def run(
     rank = comm.Get_rank()
     n_workers = comm.Get_size()-1
     status = MPI.Status()
-    pickle =  MPI.Pickle()
     stop = False
-    stop_buff = bytearray(pickle.dumps(stop))
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
+    model_weights = None
 
     if rank == 0:
         print("Running centralized async")
@@ -54,14 +53,10 @@ def run(
 
         val_dataset = tf.data.Dataset.from_tensor_slices((X_cv, y_cv)).batch(batch_size)
 
-        size_buff = bytearray(pickle.dumps(len(X_cv)))
-
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
         for node in range(n_workers):
-            comm.Recv(size_buff, source=MPI.ANY_SOURCE, tag=1000, status=status)
-            n_examples = pickle.loads(size_buff)
-
+            n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
 
             node_weights[status.Get_source()-1] = n_examples
         
@@ -70,7 +65,8 @@ def run(
 
         node_weights = [weight/total_n_batches for weight in node_weights]
         results["times"]["sync"].append(time.time() - start)
-        model_buff = bytearray(pickle.dumps(model.get_weights()))
+        
+        model_weights = model.get_weights()
 
     else:
         results = {"times" : {"train" : [], "comm_send" : [], "comm_recv" : [], "conv_send" : [], "conv_recv" : [], "epochs" : []}}
@@ -79,32 +75,14 @@ def run(
 
         train_dataset = list(tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size))
 
-        compr_data = pickle.dumps(len(train_dataset))
-
-        comm.Send(compr_data, dest=0, tag=1000)
+        comm.send(len(train_dataset), dest=0, tag=1000)
 
         total_batches = epochs * len(train_dataset)
-
-        model_buff = bytearray(pickle.dumps(model.get_weights()))
     
-    comm.Bcast(model_buff, root=0)
+    comm.bcast(model_weights, root=0)
 
     if rank != 0:
-        weights = pickle.loads(model_buff)
-
-        model.set_weights(weights)
-    else:
-        results["times"]["sync"].append(time.time() - start)
-
-        #Get gradient size
-        x_batch, y_batch = list(val_dataset.take(1))[0]
-
-        with tf.GradientTape() as tape:
-
-            logits = model(x_batch, training=True)
-            loss_value = loss_fn(y_batch, logits)
-
-        grads_buff = bytearray(pickle.dumps(tape.gradient(loss_value, model.trainable_weights)))
+        model.set_weights(model_weights)
 
     epoch_start = time.time()
     if rank == 0:
@@ -112,13 +90,7 @@ def run(
         latest_tag = 0
         for batch in range(total_batches):
 
-            com_time = time.time()
-            comm.Recv(grads_buff, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
-            results["times"]["comm_recv"].append(time.time() - com_time)
-
-            load_time = time.time()
-            grads = pickle.loads(grads_buff)
-            results["times"]["conv_recv"].append(time.time() - load_time)
+            grads = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
 
             source = status.Get_source()
             tag = status.Get_tag()
@@ -132,16 +104,8 @@ def run(
 
             optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
-            load_time = time.time()
-            weights = pickle.dumps(model.get_weights())
-            results["times"]["conv_send"].append(time.time() - load_time)
-
-            comm_time = time.time()
-            comm.Send(weights, dest=source, tag=tag)
-            results["times"]["comm_send"].append(time.time() - comm_time)
-
-            stop_buff = bytearray(pickle.dumps(stop))
-            comm.Send(stop_buff, dest=source, tag=tag)
+            comm.send(model.get_weights(), dest=source, tag=tag)
+            comm.send(stop, dest=source, tag=tag)
 
             if stop:
                 exited_workers +=1
@@ -192,26 +156,11 @@ def run(
             grads = tape.gradient(loss_value, model.trainable_weights)
             results["times"]["train"].append(time.time() - train_time)
 
-            load_time = time.time()
-            grads = pickle.dumps(grads)
-            results["times"]["conv_send"].append(time.time() - load_time)
-            
-            comm_time = time.time()
-            comm.Send(grads, dest=0, tag=batch)
-            results["times"]["comm_send"].append(time.time() - comm_time)
+            comm.send(grads, dest=0, tag=batch)
 
-            com_time = time.time()
-            comm.Recv(model_buff, source=0, tag=batch)
-            results["times"]["comm_recv"].append(time.time() - com_time)
+            model.set_weights(comm.recv(source=0, tag=batch))
 
-            load_time = time.time()
-            weights = pickle.loads(model_buff)
-            results["times"]["conv_recv"].append(time.time() - load_time)
-
-            comm.Recv(stop_buff, source=0, tag=batch)
-            stop = pickle.loads(stop_buff)
-
-            model.set_weights(weights)
+            stop = comm.recv(source=0, tag=batch)
 
             if (batch+1) % len(train_dataset) == 0:
                 results["times"]["epochs"].append(time.time() - epoch_start)
