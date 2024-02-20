@@ -4,3 +4,4 @@ pandas
 scikit-learn
 matplotlib
 eclipse-zenoh==0.10.0rc0
+transformers
