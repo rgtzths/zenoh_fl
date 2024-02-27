@@ -3,14 +3,28 @@ import pickle
 from mpi4py import MPI
 import time
 
+'''
+MPI stuff
+'''
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 n_workers = comm.Get_size()-1
 status = MPI.Status()
+
+'''
+model loading
+'''
 model = TFBertModel.from_pretrained("bert-base-uncased")
 
 if rank == 0:
+    '''
+    Model size
+    '''
     print("Size of the model: ", len(pickle.dumps(model.get_weights())))
+    
+    '''
+    Measuring comm time
+    '''
     start_time = time.time()
     comm.send(model.get_weights(), dest=1, tag=1)
     end_time = time.time() - start_time
