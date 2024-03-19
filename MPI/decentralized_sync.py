@@ -5,6 +5,8 @@ import numpy as np
 import tensorflow as tf
 from mpi4py import MPI
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
+import pickle
+import sys
 
 tf.keras.utils.set_random_seed(42)
 
@@ -39,7 +41,7 @@ def run(
         print(f"Local epochs: {local_epochs}")
         print(f"Batch size: {batch_size}")
 
-    output = f"{output}/{dataset}/mpi/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}"
+    output = f"{output}/{dataset}/mpi/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}_{batch_size}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -50,6 +52,8 @@ def run(
         loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
+    sent_size = 0
+    received_size = 0
 
     start = time.time()
 
@@ -65,6 +69,7 @@ def run(
         for node in range(n_workers):
             n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
             node_weights[status.Get_source()-1] = n_examples
+            received_size += sys.getsizeof(pickle.dumps(n_examples))
 
         total_size = sum(node_weights)
 
@@ -79,11 +84,13 @@ def run(
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
 
-        comm.isend(len(train_dataset), dest=0, tag=1000)
+        comm.send(len(train_dataset), dest=0, tag=1000)
 
     model_weights = comm.bcast(model_weights, root=0)
 
-    if rank != 0:
+    if rank == 0:
+        sent_size += sys.getsizeof(pickle.dumps(model_weights))*n_workers 
+    else:
         model.set_weights(model_weights)
 
     for global_epoch in range(global_epochs):
@@ -91,10 +98,11 @@ def run(
         epoch_start = time.time()
 
         if rank == 0:
-            print("\nStart of epoch %d" % (global_epoch+1))
+            print("\nStart of epoch %d, elapsed time %5.1fs" % (global_epoch+1, time.time() - start))
 
             for _ in range(n_workers):
                 weights = comm.recv(source=MPI.ANY_SOURCE, tag=global_epoch, status=status)
+                received_size+=sys.getsizeof(pickle.dumps(weights))
 
                 source = status.Get_source()
 
@@ -102,20 +110,20 @@ def run(
                     avg_weights = [ weight * node_weights[source-1] for weight in weights]
                 else:
                     avg_weights = [ avg_weights[i] + weights[i] * node_weights[source-1] for i in range(len(weights))]
-                            
+            sent_size += sys.getsizeof(pickle.dumps(avg_weights))*n_workers        
         else:
             train_time = time.time()
             model.fit(train_dataset, epochs=local_epochs, verbose=0)
             results["times"]["train"].append(time.time() - train_time)
 
-            comm.isend(model.get_weights(), dest=0, tag=global_epoch)
+            comm.send(model.get_weights(), dest=0, tag=global_epoch)
 
         avg_weights = comm.bcast(avg_weights, root=0)
 
         stop = comm.bcast(stop, root=0)
-
+        if rank == 0:
+            sent_size += sys.getsizeof(pickle.dumps(stop))*8
         
-    
         if rank != 0:
             model.set_weights(avg_weights)
             results["times"]["epochs"].append(time.time() - epoch_start)
@@ -139,7 +147,7 @@ def run(
 
             patience_buffer = patience_buffer[1:]
             patience_buffer.append(val_mcc)
-            print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
+            print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f - sent_messages  %6.3f - received_messages  %6.3f "  %(val_f1, val_mcc, val_acc, sent_size*0.000001, received_size*0.000001))
             if stop:
                 break
             p_stop = True
@@ -147,7 +155,7 @@ def run(
                 if abs(patience_buffer[0] - value) > min_delta:
                     p_stop = False 
 
-            if (val_mcc > early_stop or p_stop) and global_epoch > 10:
+            if val_mcc > early_stop or p_stop:
                 stop = True
 
     history = json.dumps(results)

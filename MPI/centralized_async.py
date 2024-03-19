@@ -5,6 +5,8 @@ import numpy as np
 import tensorflow as tf
 from mpi4py import MPI
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
+import pickle
+import sys
 
 tf.keras.utils.set_random_seed(42)
 
@@ -36,7 +38,7 @@ def run(
         print(f"Epochs: {epochs}")
         print(f"Batch size: {batch_size}")
 
-    output = f"{output}/{dataset}/mpi/centralized_async/{n_workers}_{epochs}"
+    output = f"{output}/{dataset}/mpi/centralized_async/{n_workers}_{epochs}_{batch_size}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -44,10 +46,12 @@ def run(
     model = dataset_util.create_model()
     optimizer = optimizer(learning_rate=learning_rate)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
+    sent_size = 0
+    received_size = 0
 
     start = time.time()
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
+        results = {"acc" : [], "mcc" : [], "f1" : [],  "messages_size" : {"sent" : [], "received" : []}, "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [0]*n_workers
 
         X_cv, y_cv = dataset_util.load_validation_data()
@@ -59,6 +63,9 @@ def run(
         for node in range(n_workers):
             n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
             node_weights[status.Get_source()-1] = n_examples
+
+            received_size += sys.getsizeof(pickle.dumps(n_examples))
+
         
         total_n_batches = sum(node_weights)
         total_batches = epochs * total_n_batches
@@ -73,13 +80,15 @@ def run(
 
         train_dataset = list(tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size))
 
-        comm.isend(len(train_dataset), dest=0, tag=1000)
+        comm.send(len(train_dataset), dest=0, tag=1000)
 
         total_batches = epochs * len(train_dataset)
     
     model_weights = comm.bcast(model_weights, root=0)
 
-    if rank != 0:
+    if rank == 0:
+        sent_size += sys.getsizeof(pickle.dumps(model_weights))*n_workers 
+    else:
         model.set_weights(model_weights)
 
     epoch_start = time.time()
@@ -89,6 +98,7 @@ def run(
         for batch in range(total_batches):
 
             grads = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
+            received_size+=sys.getsizeof(pickle.dumps(grads))
 
             source = status.Get_source()
             tag = status.Get_tag()
@@ -102,9 +112,12 @@ def run(
 
             optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
-            comm.send(model.get_weights(), dest=source, tag=tag)
+            model_weights = model.get_weights()
+            comm.send(model_weights, dest=source, tag=tag)
+            sent_size += sys.getsizeof(pickle.dumps(model_weights)) 
 
-            comm.isend(stop, dest=source, tag=tag)
+            comm.send(stop, dest=source, tag=tag)
+            sent_size += sys.getsizeof(pickle.dumps(stop)) 
 
             if stop:
                 exited_workers += 1
@@ -116,7 +129,7 @@ def run(
 
                 results["times"]["epochs"].append(time.time() - epoch_start)
 
-                print(f"\n End of batch {(batch+1)//n_workers} -> epoch {(batch+1)//total_n_batches}")
+                print(f"\n End of batch {(batch+1)//n_workers} -> epoch {(batch+1)//total_n_batches}, elapsed time {time.time() - start:.1f}s")
 
                 predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
                 val_f1 = f1_score(y_cv, predictions, average="macro")
@@ -126,8 +139,10 @@ def run(
                 results["acc"].append(val_acc)
                 results["f1"].append(val_f1)
                 results["mcc"].append(val_mcc)
+                results["messages_size"]["sent"].append(sent_size)
+                results["messages_size"]["received"].append(received_size)
                 results["times"]["global_times"].append(time.time() - start)
-                print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
+                print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f - sent_messages  %6.3f - received_messages  %6.3f "  %(val_f1, val_mcc, val_acc, sent_size*0.000001, received_size*0.000001))
                 patience_buffer = patience_buffer[1:]
                 patience_buffer.append(val_mcc)
 
@@ -136,7 +151,7 @@ def run(
                     if abs(patience_buffer[0] - value) > min_delta:
                         p_stop = False 
 
-                if (val_mcc > early_stop or p_stop) and (batch+1)//total_n_batches > 10:
+                if val_mcc > early_stop or p_stop:
                     stop = True
 
                 epoch_start = time.time()
@@ -156,7 +171,7 @@ def run(
             grads = tape.gradient(loss_value, model.trainable_weights)
             results["times"]["train"].append(time.time() - train_time)
 
-            comm.isend(grads, dest=0, tag=batch)
+            comm.send(grads, dest=0, tag=batch)
 
             model_weights = comm.recv(source=0, tag=batch)
 

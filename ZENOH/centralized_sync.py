@@ -37,7 +37,7 @@ def run(
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
 
-    output = f"{output}/{dataset}/zenoh/centralized_sync/{n_workers}_{epochs}"
+    output = f"{output}/{dataset}/zenoh/centralized_sync/{n_workers}_{epochs}_{batch_size}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -136,7 +136,7 @@ def run(
 
             if rank == 0:
 
-                logging.info(f"End of batch {batch+1} -> epoch {(batch+1) // total_n_batches}")
+                logging.info(f"\n End of batch {batch+1} -> epoch {(batch+1) // total_n_batches}, elapsed time {time.time() - start:.1f}s")
                 predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
                 val_f1 = f1_score(y_cv, predictions, average="macro")
                 val_mcc = matthews_corrcoef(y_cv, predictions)
@@ -155,7 +155,7 @@ def run(
                     if abs(patience_buffer[0] - value) > min_delta:
                         p_stop = False 
 
-                if (val_mcc > early_stop or p_stop) and (batch+1) // total_n_batches > 10:
+                if val_mcc > early_stop or p_stop:
                     stop = True
 
             else:

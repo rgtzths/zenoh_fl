@@ -40,7 +40,7 @@ def run(
     dataset = dataset_util.name
     patience_buffer = [0]*patience
 
-    output = f"{output}/{dataset}/zenoh/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}"
+    output = f"{output}/{dataset}/zenoh/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}_{batch_size}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -116,7 +116,7 @@ def run(
         for epoch in range(global_epochs*(n_workers)):
             if epoch % n_workers == 0:
 
-                logging.info("Start of epoch %d" % (epoch//n_workers+1))
+                logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (epoch//n_workers+1, time.time() - start))
 
             data = comm.recv(source=ANY_SRC, tag=ANY_TAG)
 

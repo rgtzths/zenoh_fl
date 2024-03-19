@@ -1,5 +1,5 @@
-tensorflow
-mpi4py
+#tensorflow
+#mpi4py
 pandas
 scikit-learn
 matplotlib

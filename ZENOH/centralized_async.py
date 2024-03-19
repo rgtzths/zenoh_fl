@@ -37,7 +37,7 @@ def run(
     patience_buffer = [-1]*patience
 
 
-    output = f"{output}/{dataset}/zenoh/centralized_async/{n_workers}_{epochs}"
+    output = f"{output}/{dataset}/zenoh/centralized_async/{n_workers}_{epochs}_{batch_size}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -124,7 +124,7 @@ def run(
             if (batch+1) % total_n_batches == 0 and not stop:
                 results["times"]["epochs"].append(time.time() - epoch_start)
 
-                logging.info(f"End of batch {(batch+1)//n_workers} -> epoch {(batch+1)//total_n_batches}")
+                logging.info(f"\n End of batch {(batch+1)//n_workers} -> epoch {(batch+1)//total_n_batches}, elapsed time {time.time() - start:.1f}s")
 
                 predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
                 val_f1 = f1_score(y_cv, predictions, average="macro")

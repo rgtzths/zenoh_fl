@@ -38,7 +38,7 @@ def run(
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
 
-    output = f"{output}/{dataset}/zenoh/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}"
+    output = f"{output}/{dataset}/zenoh/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}_{batch_size}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -96,7 +96,7 @@ def run(
 
         if rank == 0:
 
-            logging.info("Start of epoch %d" % global_epoch)
+            logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (global_epoch+1, time.time() - start))
             data = comm.recv(source=ALL_SRC, tag=global_epoch)
             for (source, t), weights in data.items():
                 if not avg_weights:
@@ -145,7 +145,7 @@ def run(
                 if abs(patience_buffer[0] - value) > min_delta:
                     p_stop = False 
 
-            if (val_mcc > early_stop or p_stop) and global_epoch > 10:
+            if val_mcc > early_stop or p_stop:
                 stop = True
         
 

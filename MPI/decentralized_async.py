@@ -5,6 +5,8 @@ import numpy as np
 import tensorflow as tf
 from mpi4py import MPI
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
+import pickle
+import sys
 
 tf.keras.utils.set_random_seed(42)
 
@@ -41,7 +43,7 @@ def run(
         print(f"Batch size: {batch_size}")
         print(f"Alpha: {alpha}")
 
-    output = f"{output}/{dataset}/mpi/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}"
+    output = f"{output}/{dataset}/mpi/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}_{batch_size}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -52,6 +54,8 @@ def run(
         loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
+    sent_size = 0
+    received_size = 0
 
     start = time.time()
 
@@ -74,6 +78,8 @@ def run(
         for _ in range(n_workers):
             n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
             node_weights[status.Get_source()-1] = n_examples
+            received_size += sys.getsizeof(pickle.dumps(n_examples))
+
         
         biggest_n_examples = max(node_weights)
 
@@ -87,14 +93,17 @@ def run(
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
 
-        comm.isend(len(train_dataset), dest=0, tag=1000)
+        comm.send(len(train_dataset), dest=0, tag=1000)
 
     '''
     Parameter server shares its values so every worker starts from the same point.
     '''
     model_weights = comm.bcast(model_weights, root=0)
 
-    if rank != 0:
+    if rank == 0:
+        model_size = sys.getsizeof(pickle.dumps(model_weights))
+        sent_size += model_size*n_workers 
+    else:
         model.set_weights(model_weights)
 
     '''
@@ -110,11 +119,12 @@ def run(
         for epoch in range(global_epochs*(n_workers)):
             if epoch % n_workers == 0:
 
-                print("\nStart of epoch %d" % (epoch//n_workers+1))
+                print("\nStart of epoch %d, elapsed time %5.1fs" % (epoch//n_workers+1, time.time() - start))
             
             #This needs to be changed to the correct formula
             
             weights = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
+            received_size+=sys.getsizeof(pickle.dumps(weights))
 
             source = status.Get_source()
             tag = status.Get_tag()
@@ -127,9 +137,11 @@ def run(
                             for idx, weight in enumerate(weight_diffs)]
             
             comm.send(weight_diffs, dest=source, tag=tag)
+            sent_size += sys.getsizeof(pickle.dumps(weight_diffs)) 
 
-            comm.isend(stop, dest=source, tag=tag)
-            
+            comm.send(stop, dest=source, tag=tag)
+            sent_size += sys.getsizeof(pickle.dumps(stop)) 
+
             if stop:
                 exited_workers +=1
             if exited_workers == n_workers:
@@ -150,14 +162,14 @@ def run(
                 patience_buffer = patience_buffer[1:]
                 patience_buffer.append(val_mcc)
 
-                print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
+                print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f - sent_messages  %6.3f - received_messages  %6.3f "  %(val_f1, val_mcc, val_acc, sent_size*0.000001, received_size*0.000001))
 
                 p_stop = True
                 for value in patience_buffer[1:]:
                     if abs(patience_buffer[0] - value) > min_delta:
                         p_stop = False 
 
-                if (val_mcc > early_stop or p_stop) and epoch//n_workers+1 > 10:
+                if val_mcc > early_stop or p_stop:
                     stop = True
 
                 epoch_start = time.time()
@@ -169,7 +181,7 @@ def run(
             model.fit(train_dataset, epochs=local_epochs, verbose=0)
             results["times"]["train"].append(time.time() - train_time)
 
-            comm.isend(model.get_weights(), dest=0, tag=global_epoch)
+            comm.send(model.get_weights(), dest=0, tag=global_epoch)
 
             weight_diffs = comm.recv(source=0, tag=global_epoch)
 
