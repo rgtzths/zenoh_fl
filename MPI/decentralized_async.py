@@ -65,7 +65,7 @@ def run(
     weighted average of their contributions.
     '''
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "messages_size" : {"sent" : [], "received" : []}, "times" : {"epochs" : [], "global_times" : []}}
 
         node_weights = [0]*(n_workers)
         

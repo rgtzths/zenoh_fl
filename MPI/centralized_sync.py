@@ -52,7 +52,7 @@ def run(
 
     start = time.time()
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [],  "messages_size" : {"sent" : [], "received" : []}, "times" : {"epochs" : [], "global_times" : []}}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "messages_size" : {"sent" : [], "received" : []}, "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [0]*n_workers
 
         X_cv, y_cv = dataset_util.load_validation_data()

@@ -58,7 +58,7 @@ def run(
     start = time.time()
 
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "messages_size" : {"sent" : [], "received" : []}, "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [0]*(n_workers)
         X_cv, y_cv = dataset_util.load_validation_data()
 
@@ -143,7 +143,8 @@ def run(
             results["f1"].append(val_f1)
             results["mcc"].append(val_mcc)
             results["times"]["global_times"].append(time.time() - start)
-
+            results["messages_size"]["sent"].append(sent_size)
+            results["messages_size"]["received"].append(received_size)
             patience_buffer = patience_buffer[1:]
             patience_buffer.append(val_mcc)
             print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f - sent_messages  %6.3f - received_messages  %6.3f "  %(val_f1, val_mcc, val_acc, sent_size*0.000001, received_size*0.000001))
