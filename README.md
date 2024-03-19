@@ -1,6 +1,6 @@
 # zenoh_fl
  
-## Structure
+## Struct ure
 
 This repository has the following structure:
 ```
