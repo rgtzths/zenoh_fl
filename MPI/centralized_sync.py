@@ -135,8 +135,7 @@ def run(
         stop = comm.bcast(stop, root=0)
         if rank == 0:
             sent_size += sys.getsizeof(pickle.dumps(stop))*8
-
-        if rank != 0:
+        else:
             model.set_weights(model_weights)
 
         if stop:

@@ -121,8 +121,6 @@ def run(
         avg_weights = comm.bcast(avg_weights, root=0)
 
         stop = comm.bcast(stop, root=0)
-        if rank == 0:
-            sent_size += sys.getsizeof(pickle.dumps(stop))*8
         
         if rank != 0:
             model.set_weights(avg_weights)
@@ -130,6 +128,7 @@ def run(
             if stop:
                 break
         else:
+            sent_size += sys.getsizeof(pickle.dumps(stop))*8
 
             results["times"]["epochs"].append(time.time() - epoch_start)
 

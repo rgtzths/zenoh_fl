@@ -3,7 +3,7 @@ p=300
 md=0.0001
 datasets=("Slicing5G" "IOT_DNL")
 learning_rates=(0.000005 0.00001)
-n_workers=(2)
+n_workers=(8)
 
 for i in "${!datasets[@]}"; do
     dataset=${datasets[$i]}
@@ -16,11 +16,11 @@ for i in "${!datasets[@]}"; do
         batch_sizes=(32 64 128 256 512 1024 2048)
         for b in "${batch_sizes[@]}"; do
             # async
-            command="mpirun -np $n -hostfile MPI/host_file python federated_learning.py -m 1 \
+            command="mpirun -np $n -hostfile MPI/host_file python3 federated_learning.py -m 1 \
             -d $dataset -lr $lr -b $b -s $s -p $p -md $md -e $e"
             eval $command
             # sync
-            command="mpirun -np $n -hostfile MPI/host_file python federated_learning.py -m 2 \
+            command="mpirun -np $n -hostfile MPI/host_file python3 federated_learning.py -m 2 \
             -d $dataset -lr $lr -b $b -s $s -p $p -md $md -e $e"
             eval $command
         done
@@ -34,12 +34,12 @@ for i in "${!datasets[@]}"; do
                 # async
                 alphas=(0.1 0.2 0.3 0.4 0.5)
                 for a in "${alphas[@]}"; do
-                    command="mpirun -np $n -hostfile MPI/host_file python federated_learning.py -m 3 \
+                    command="mpirun -np $n -hostfile MPI/host_file python3 federated_learning.py -m 3 \
                     -d $dataset -lr $lr -b $b -s $s -p $p -md $md -ge $ge -le $le -a $a"
                     eval $command
                 done
                 # sync
-                command="mpirun -np $n -hostfile MPI/host_file python federated_learning.py -m 4 \
+                command="mpirun -np $n -hostfile MPI/host_file python3 federated_learning.py -m 4 \
                 -d $dataset -lr $lr -b $b -s $s -p $p -md $md -ge $ge -le $le"
                 eval $command
             done

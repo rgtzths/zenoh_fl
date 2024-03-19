@@ -101,8 +101,7 @@ def run(
     model_weights = comm.bcast(model_weights, root=0)
 
     if rank == 0:
-        model_size = sys.getsizeof(pickle.dumps(model_weights))
-        sent_size += model_size*n_workers 
+        sent_size += sys.getsizeof(pickle.dumps(model_weights))*n_workers 
     else:
         model.set_weights(model_weights)
 
@@ -158,6 +157,8 @@ def run(
                 results["acc"].append(val_acc)
                 results["f1"].append(val_f1)
                 results["mcc"].append(val_mcc)
+                results["messages_size"]["sent"].append(sent_size)
+                results["messages_size"]["received"].append(received_size)
                 results["times"]["global_times"].append(time.time() - start)
                 patience_buffer = patience_buffer[1:]
                 patience_buffer.append(val_mcc)
