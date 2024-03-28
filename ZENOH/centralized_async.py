@@ -46,7 +46,6 @@ def run(
     optimizer = optimizer(learning_rate=learning_rate)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
 
-    start = time.time()
     comm = ZComm(rank, n_workers)
 
 
@@ -54,6 +53,7 @@ def run(
     comm.wait(n_workers+1)
     logging.info(f'[RANK: {rank}] Nodes up!')
     model_weights = None
+    start = time.time()
 
     if rank == 0:
         results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}

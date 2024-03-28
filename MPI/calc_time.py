@@ -2,6 +2,7 @@ from transformers import BertTokenizer, TFBertModel
 import pickle
 from mpi4py import MPI
 import time
+import sys
 
 '''
 MPI stuff
@@ -20,7 +21,7 @@ if rank == 0:
     '''
     Model size
     '''
-    print("Size of the model: ", len(pickle.dumps(model.get_weights())))
+    print(f"Size of the model: {sys.getsizeof(pickle.dumps(model.get_weights()))*0.000001:.2f}")
     
     '''
     Measuring comm time

@@ -54,7 +54,6 @@ def run(
 
     model_weights = None
 
-    start = time.time()
     comm = ZComm(rank, n_workers)
 
     logging.info(f'[RANK: {rank}] Waiting nodes...')
@@ -66,6 +65,7 @@ def run(
     examples each worker has to perform a
     weighted average of their contributions.
     '''
+    start = time.time()
 
     if rank == 0:
         results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}

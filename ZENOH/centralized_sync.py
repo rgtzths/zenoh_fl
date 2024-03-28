@@ -48,12 +48,12 @@ def run(
     model_weights = None
 
 
-    start = time.time()
     comm = ZComm(rank, n_workers)
     logging.info(f'[RANK: {rank}] Epochs: {epochs}')
     logging.info(f'[RANK: {rank}] Waiting nodes...')
     comm.wait(n_workers+1)
     logging.info(f'[RANK: {rank}] Nodes up!')
+    start = time.time()
 
     if rank == 0:
         results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
