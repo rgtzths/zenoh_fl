@@ -111,7 +111,6 @@ class ZComm(object):
                 for reply in replies.receiver:
                     if int(reply.ok.payload.decode("utf-8").split("-")[0]) == i:
                         data = "up"
-                time.sleep(0.05)
 
     def recv(self, source, tag):
         # logging.debug(f'[RANK: {self.rank}] Receving from {source} - Tag: {tag}')
@@ -138,7 +137,6 @@ class ZComm(object):
                 if tag == ANY_TAG:
                     # looping on no tags
                     while len(src_data.keys()) == 0:
-                        time.sleep(0.005)
                     # logging.debug(f'[RANK {self.rank}] SRC TAGS: {src_data.keys()} ')
                     tag = list(src_data.keys())[0]
                     # call self to retrieve the data with the given tag
@@ -146,7 +144,6 @@ class ZComm(object):
                 else:
                     tag_data = src_data.get(tag) 
                     while tag_data is None: # if the data is not there wait...
-                        time.sleep(0.005)
                         tag_data = src_data.get(tag)
                     # if no more data with this tag remove it.
                     if len(tag_data) == 0:
@@ -164,7 +161,6 @@ class ZComm(object):
 
             except Exception as e:
                 # logging.error(f'[RANK {self.rank}] Exception: {e} ')
-                time.sleep(0.005)
                 continue
         return data
 
@@ -183,7 +179,6 @@ class ZComm(object):
                 except:
                     continue
             
-            time.sleep(0.005)
         #logging.debug(f'[RANK: {self.rank}] Sent on {ke}')
 
     def bcast(self, root, data, tag):
@@ -210,7 +205,6 @@ class ZComm(object):
     def recv_from_any(self, tag):
         ready_src = None
         while len(self.msg_queue) == 0:
-            time.sleep(0.005)
 
         ready_src = self.msg_queue[0]
         #logging.debug(f"Data is {self.data}")

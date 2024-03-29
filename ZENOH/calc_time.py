@@ -16,7 +16,7 @@ import time
 import logging
 import numpy as np
 import tensorflow as tf
-from ZENOH.zcomm import ZComm, ALL_SRC, ANY_SRC, ANY_TAG
+from zcomm import ZComm, ALL_SRC, ANY_SRC, ANY_TAG
 import argparse
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)
 
@@ -57,3 +57,4 @@ if rank == 0:
 else:
     model = comm.recv(source=0, tag=1)
 
+comm.close()
