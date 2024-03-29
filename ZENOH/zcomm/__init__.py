@@ -137,6 +137,7 @@ class ZComm(object):
                 if tag == ANY_TAG:
                     # looping on no tags
                     while len(src_data.keys()) == 0:
+                        a = 0
                     # logging.debug(f'[RANK {self.rank}] SRC TAGS: {src_data.keys()} ')
                     tag = list(src_data.keys())[0]
                     # call self to retrieve the data with the given tag
@@ -178,7 +179,6 @@ class ZComm(object):
                         acks = 1
                 except:
                     continue
-            
         #logging.debug(f'[RANK: {self.rank}] Sent on {ke}')
 
     def bcast(self, root, data, tag):
@@ -205,7 +205,7 @@ class ZComm(object):
     def recv_from_any(self, tag):
         ready_src = None
         while len(self.msg_queue) == 0:
-
+            a = 0
         ready_src = self.msg_queue[0]
         #logging.debug(f"Data is {self.data}")
         return self.recv(ready_src, tag)
