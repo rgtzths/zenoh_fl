@@ -1,0 +1,16 @@
+[package]
+edition = "2021"
+name = "zcomm"
+version = "0.1.0"
+
+[dependencies]
+anyhow = "1.0.82"
+bitcode = "=0.6.0"
+clap = { version = "4.4.11", features = ["derive"] }
+flume = "0.11.0"
+futures = "0.3"
+serde = { version = "1.0", features = ["derive", "rc"] }
+tokio = { version = "1.36", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+zenoh = { version = "0.11.0-rc.2" }
