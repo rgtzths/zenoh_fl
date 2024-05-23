@@ -7,11 +7,18 @@
 
 use std::{
     collections::{HashMap, VecDeque},
+    ops::Deref,
     sync::{Arc, Condvar},
 };
 
 use bitcode::{Decode, Encode};
 use flume::Receiver;
+use pyo3::{
+    exceptions::PyValueError,
+    pyclass, pymethods,
+    types::{PyDict, PyInt, PyString},
+    IntoPy, Py, PyAny, PyResult, Python, ToPyObject,
+};
 use tokio::{sync::RwLock, task::yield_now};
 use zenoh::{
     prelude::r#async::*,
@@ -27,6 +34,7 @@ pub const ANY_SRC: i8 = -2;
 pub const ALL_TAG: i8 = -1;
 pub const ANY_TAG: i8 = -2;
 
+#[pyclass]
 #[derive(Encode, Decode, Debug)]
 pub struct ZCommData {
     pub src: i8,
@@ -105,7 +113,7 @@ impl ZComm {
         Ok(())
     }
 
-    pub async fn start(&self) -> Result<(), Error> {
+    pub fn start(&self) -> Result<(), Error> {
         let c_status_queriable = self.live_queriable.clone();
         let c_rank = self.rank;
         tokio::task::spawn(async move {
@@ -207,7 +215,6 @@ impl ZComm {
             data = data_guard
                 .get_mut(&src)
                 .and_then(|hm| hm.get_mut(&tag).and_then(|dq| dq.pop_front()));
-
 
             // removing from received if data is found
             match data {
@@ -319,5 +326,74 @@ impl ZComm {
         data.insert(ready_src, self.recv_single(ready_src, tag).await?);
 
         Ok(data)
+    }
+}
+
+#[pyclass]
+pub struct ZCommPy {
+    pub(crate) inner: Arc<ZComm>,
+}
+
+#[pymethods]
+impl ZCommPy {
+    #[new]
+    pub fn new<'p>(
+        py: Python<'p>,
+        rank: &'p PyInt,
+        workers: &'p PyInt,
+        locator: &'p PyString,
+    ) -> PyResult<Self> {
+        let rank: i8 = rank.extract()?;
+        let workers: i8 = workers.extract()?;
+        let locator: String = locator.extract()?;
+
+        pyo3_asyncio::tokio::run(py, async move {
+            let inner = ZComm::new(rank, workers, locator)
+                .await
+                .map_err(|_| PyValueError::new_err("Unable to create ZComm"))?;
+            let inner = Arc::new(inner);
+            Ok(ZCommPy { inner })
+        })
+    }
+
+    pub fn start<'p>(&'p self, _py: Python<'p>) -> PyResult<()> {
+        let _ = self.inner.start();
+        Ok(())
+    }
+
+    pub fn wait<'p>(&self, py: Python<'p>) -> PyResult<&'p PyAny> {
+        let c_inner = self.inner.clone();
+
+        pyo3_asyncio::tokio::future_into_py(py, async move {
+            c_inner
+                .wait()
+                .await
+                .map_err(|_| PyValueError::new_err("Cannot wait for other nodes"))?;
+            Ok(Python::with_gil(|py| py.None()))
+        })
+    }
+
+    pub fn send<'p>(
+        &'p self,
+        py: Python<'p>,
+        src: &'p PyAny,
+        tag: &'p PyAny,
+    ) -> PyResult<&'p PyAny> {
+        let inner = self.inner.clone();
+        let src: i8 = src.extract()?;
+        let tag: i8 = tag.extract()?;
+        let mut py_dict = PyDict::new(py);
+
+        pyo3_asyncio::tokio::future_into_py(py, async move {
+            let _res = inner
+                .recv(src, tag)
+                .await
+                .map_err(|_| PyValueError::new_err("Cannot receive data"))?;
+            // _res.iter().map(|(k,v)|
+            //     py_dict.set_item(k, v.into_py(py))
+            // );
+            // Ok(py_dict)
+            Ok(Python::with_gil(|py| py.None()))
+        })
     }
 }
