@@ -202,7 +202,7 @@ impl ZComm {
             let mut data_guard = self.data.write().await;
             let mut queue_guard = self.msg_queue.write().await;
 
-            index = queue_guard.iter().position(|(s, t)| *s == src);
+            index = queue_guard.iter().position(|(s, _t)| *s == src);
             // here we should cover the ANY_TAG case
             data = data_guard
                 .get_mut(&src)
