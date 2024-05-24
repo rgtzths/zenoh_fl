@@ -7,7 +7,6 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    ops::Deref,
     sync::{Arc, Condvar},
 };
 
@@ -16,8 +15,8 @@ use flume::Receiver;
 use pyo3::{
     exceptions::PyValueError,
     pyclass, pymethods,
-    types::{PyDict, PyInt, PyString},
-    IntoPy, Py, PyAny, PyResult, Python, ToPyObject,
+    types::{PyBytes, PyDict, PyInt, PyString},
+    IntoPy, Py, PyAny, PyObject, PyResult, Python, ToPyObject,
 };
 use tokio::{sync::RwLock, task::yield_now};
 use zenoh::{
@@ -34,7 +33,6 @@ pub const ANY_SRC: i8 = -2;
 pub const ALL_TAG: i8 = -1;
 pub const ANY_TAG: i8 = -2;
 
-#[pyclass]
 #[derive(Encode, Decode, Debug)]
 pub struct ZCommData {
     pub src: i8,
@@ -247,7 +245,7 @@ impl ZComm {
                     let mut data_guard = self.data.write().await;
                     any_tag = data_guard
                         .get_mut(&src)
-                        .and_then(|hm| Some(hm.keys().map(|i| *i).collect::<Vec<i8>>()))
+                        .and_then(|hm| Some(hm.keys().copied().collect::<Vec<i8>>()))
                         .unwrap_or_default()
                         .pop();
                     yield_now().await;
@@ -282,7 +280,7 @@ impl ZComm {
                     .res()
                     .await?
                     .iter()
-                    .map(|r| r.sample.and_then(|s| Ok(s.payload.contiguous().to_vec())))
+                    .map(|r| r.sample.map(|s| s.payload.contiguous().to_vec()))
                     .collect::<Result<Vec<Vec<u8>>, _>>()
                     .unwrap_or_default();
 
@@ -373,7 +371,7 @@ impl ZCommPy {
         })
     }
 
-    pub fn send<'p>(
+    pub fn recv<'p>(
         &'p self,
         py: Python<'p>,
         src: &'p PyAny,
@@ -382,18 +380,93 @@ impl ZCommPy {
         let inner = self.inner.clone();
         let src: i8 = src.extract()?;
         let tag: i8 = tag.extract()?;
-        let mut py_dict = PyDict::new(py);
 
         pyo3_asyncio::tokio::future_into_py(py, async move {
-            let _res = inner
+            let res = inner
                 .recv(src, tag)
                 .await
                 .map_err(|_| PyValueError::new_err("Cannot receive data"))?;
-            // _res.iter().map(|(k,v)|
-            //     py_dict.set_item(k, v.into_py(py))
-            // );
-            // Ok(py_dict)
+            let ret = Python::with_gil(|py| into_py_dict(py, res));
+            Ok(ret)
+        })
+    }
+
+    pub fn send<'p>(
+        &'p self,
+        py: Python<'p>,
+        dest: &'p PyAny,
+        data: &'p PyAny,
+        tag: &'p PyAny,
+    ) -> PyResult<&'p PyAny> {
+        let inner = self.inner.clone();
+        let src: i8 = dest.extract()?;
+        let tag: i8 = tag.extract()?;
+        let data: Vec<u8> = data.extract()?;
+        let data = Arc::new(data);
+
+        pyo3_asyncio::tokio::future_into_py(py, async move {
+            inner
+                .send(src, data, tag)
+                .await
+                .map_err(|_| PyValueError::new_err("Cannot send data"))?;
             Ok(Python::with_gil(|py| py.None()))
         })
     }
+
+    pub fn bcast<'p>(
+        &'p self,
+        py: Python<'p>,
+        root: &'p PyAny,
+        data: &'p PyAny,
+        tag: &'p PyAny,
+    ) -> PyResult<&'p PyAny> {
+        let inner = self.inner.clone();
+        let root: i8 = root.extract()?;
+        let tag: i8 = tag.extract()?;
+        let data: Vec<u8> = data.extract()?;
+        let data = Arc::new(data);
+
+        pyo3_asyncio::tokio::future_into_py(py, async move {
+            let res = inner
+                .bcast(root, data, tag)
+                .await
+                .map_err(|_| PyValueError::new_err("Cannot receive data"))?;
+            let ret = Python::with_gil(|py| ZCommDataPy::from_rust(py, &res));
+            Ok(ret)
+        })
+    }
+}
+
+#[pyclass(subclass)]
+pub struct ZCommDataPy {
+    #[pyo3(get, set)]
+    pub src: Py<PyAny>,
+    #[pyo3(get, set)]
+    pub dest: Py<PyAny>,
+    #[pyo3(get, set)]
+    pub tag: Py<PyAny>,
+    #[pyo3(get, set)]
+    pub data: Py<PyBytes>,
+}
+
+impl ZCommDataPy {
+    pub fn from_rust(py: Python, value: &ZCommData) -> Self {
+        let data = PyBytes::new(py, value.data.as_ref()).into();
+
+        Self {
+            src: value.src.to_object(py),
+            dest: value.dest.to_object(py),
+            tag: value.tag.to_object(py),
+            data,
+        }
+    }
+}
+
+pub(crate) fn into_py_dict(py: Python, data: HashMap<i8, ZCommData>) -> PyObject {
+    let py_dict = PyDict::new(py);
+
+    data.iter().for_each(|(k, v)| {
+        let _ = py_dict.set_item(k, ZCommDataPy::from_rust(py, v).into_py(py));
+    });
+    py_dict.to_object(py)
 }
