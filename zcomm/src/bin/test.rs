@@ -5,10 +5,10 @@
 //   Gabriele baldoni, <gabriele@zettascale.tech>
 //
 
-use std::{sync::Arc, time::Duration};
-
+use anyhow::Error;
 use clap::Parser;
-use zcomm::{Error, ZComm};
+use std::{sync::Arc, time::Duration};
+use zcomm::ZComm;
 
 #[derive(Parser, Clone, PartialEq, Eq, Hash, Debug)]
 struct Args {

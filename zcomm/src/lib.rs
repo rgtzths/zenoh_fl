@@ -14,8 +14,9 @@ use bitcode::{Decode, Encode};
 use flume::Receiver;
 use pyo3::{
     exceptions::PyValueError,
+    prelude::*,
     pyclass, pymethods,
-    types::{PyBytes, PyDict, PyInt, PyString},
+    types::{PyBytes, PyDict},
     IntoPy, Py, PyAny, PyObject, PyResult, Python, ToPyObject,
 };
 use tokio::{sync::RwLock, task::yield_now};
@@ -57,6 +58,8 @@ pub struct ZComm {
 
 impl ZComm {
     pub async fn new(rank: i8, workers: i8, locator: String) -> Result<Self, Error> {
+        zenoh_util::log::try_init_log_from_env();
+
         let mut zconfig = zenoh::config::Config::default();
         let _ = zconfig.set_mode(Some(WhatAmI::Peer));
         zconfig.connect.endpoints.push(EndPoint::try_from(locator)?);
@@ -327,6 +330,13 @@ impl ZComm {
     }
 }
 
+// Note: done like this: https://github.com/wyfo/pyo3-async
+fn tokio() -> &'static tokio::runtime::Runtime {
+    use std::sync::OnceLock;
+    static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap())
+}
+
 #[pyclass]
 pub struct ZCommPy {
     pub(crate) inner: Arc<ZComm>,
@@ -334,106 +344,68 @@ pub struct ZCommPy {
 
 #[pymethods]
 impl ZCommPy {
-    #[new]
-    pub fn new<'p>(
-        py: Python<'p>,
-        rank: &'p PyInt,
-        workers: &'p PyInt,
-        locator: &'p PyString,
-    ) -> PyResult<Self> {
-        let rank: i8 = rank.extract()?;
-        let workers: i8 = workers.extract()?;
-        let locator: String = locator.extract()?;
+    #[staticmethod]
+    pub async fn new<'p>(rank: i8, workers: i8, locator: String) -> PyResult<Self> {
+        let inner = tokio()
+            .spawn(ZComm::new(rank, workers, locator))
+            .await
+            .map_err(|_| PyValueError::new_err("Unable to create ZComm"))?
+            .map_err(|_| PyValueError::new_err("Unable to create ZComm"))?;
 
-        pyo3_asyncio::tokio::run(py, async move {
-            let inner = ZComm::new(rank, workers, locator)
-                .await
-                .map_err(|_| PyValueError::new_err("Unable to create ZComm"))?;
-            let inner = Arc::new(inner);
-            Ok(ZCommPy { inner })
-        })
+        let inner = Arc::new(inner);
+        Ok(ZCommPy { inner })
     }
 
-    pub fn start<'p>(&'p self, _py: Python<'p>) -> PyResult<()> {
-        let _ = self.inner.start();
+    pub fn start<'p>(&'p self) -> PyResult<()> {
+        let c_inner = self.inner.clone();
+        tokio().spawn(async move { c_inner.start() });
+
         Ok(())
     }
 
-    pub fn wait<'p>(&self, py: Python<'p>) -> PyResult<&'p PyAny> {
+    pub async fn wait<'p>(&self) -> PyResult<()> {
         let c_inner = self.inner.clone();
-
-        pyo3_asyncio::tokio::future_into_py(py, async move {
-            c_inner
-                .wait()
-                .await
-                .map_err(|_| PyValueError::new_err("Cannot wait for other nodes"))?;
-            Ok(Python::with_gil(|py| py.None()))
-        })
+        tokio()
+            .spawn(async move { c_inner.wait().await })
+            .await
+            .map_err(|_| PyValueError::new_err("Cannot wait for other nodes"))?
+            .map_err(|_| PyValueError::new_err("Cannot wait for other nodes"))?;
+        Ok(())
     }
 
-    pub fn recv<'p>(
-        &'p self,
-        py: Python<'p>,
-        src: &'p PyAny,
-        tag: &'p PyAny,
-    ) -> PyResult<&'p PyAny> {
+    pub async fn recv<'p>(&'p self, src: i8, tag: i8) -> PyResult<PyObject> {
         let inner = self.inner.clone();
-        let src: i8 = src.extract()?;
-        let tag: i8 = tag.extract()?;
 
-        pyo3_asyncio::tokio::future_into_py(py, async move {
-            let res = inner
-                .recv(src, tag)
-                .await
-                .map_err(|_| PyValueError::new_err("Cannot receive data"))?;
-            let ret = Python::with_gil(|py| into_py_dict(py, res));
-            Ok(ret)
-        })
+        let res = tokio()
+            .spawn(async move { inner.recv(src, tag).await })
+            .await
+            .map_err(|_| PyValueError::new_err("Cannot receive data"))?
+            .map_err(|_| PyValueError::new_err("Cannot receive data"))?;
+        let ret = Python::with_gil(|py| into_py_dict(py, res));
+        Ok(ret)
     }
 
-    pub fn send<'p>(
-        &'p self,
-        py: Python<'p>,
-        dest: &'p PyAny,
-        data: &'p PyAny,
-        tag: &'p PyAny,
-    ) -> PyResult<&'p PyAny> {
+    pub async fn send<'p>(&'p self, dest: i8, data: Vec<u8>, tag: i8) -> PyResult<()> {
         let inner = self.inner.clone();
-        let src: i8 = dest.extract()?;
-        let tag: i8 = tag.extract()?;
-        let data: Vec<u8> = data.extract()?;
         let data = Arc::new(data);
-
-        pyo3_asyncio::tokio::future_into_py(py, async move {
-            inner
-                .send(src, data, tag)
-                .await
-                .map_err(|_| PyValueError::new_err("Cannot send data"))?;
-            Ok(Python::with_gil(|py| py.None()))
-        })
+        tokio()
+            .spawn(async move { inner.send(dest, data, tag).await })
+            .await
+            .map_err(|_| PyValueError::new_err("Cannot send data"))?
+            .map_err(|_| PyValueError::new_err("Cannot receive data"))?;
+        Ok(())
     }
 
-    pub fn bcast<'p>(
-        &'p self,
-        py: Python<'p>,
-        root: &'p PyAny,
-        data: &'p PyAny,
-        tag: &'p PyAny,
-    ) -> PyResult<&'p PyAny> {
+    pub async fn bcast<'p>(&'p self, root: i8, data: Vec<u8>, tag: i8) -> PyResult<ZCommDataPy> {
         let inner = self.inner.clone();
-        let root: i8 = root.extract()?;
-        let tag: i8 = tag.extract()?;
-        let data: Vec<u8> = data.extract()?;
         let data = Arc::new(data);
-
-        pyo3_asyncio::tokio::future_into_py(py, async move {
-            let res = inner
-                .bcast(root, data, tag)
-                .await
-                .map_err(|_| PyValueError::new_err("Cannot receive data"))?;
-            let ret = Python::with_gil(|py| ZCommDataPy::from_rust(py, &res));
-            Ok(ret)
-        })
+        let res = tokio()
+            .spawn(async move { inner.bcast(root, data, tag).await })
+            .await
+            .map_err(|_| PyValueError::new_err("Cannot receive data"))?
+            .map_err(|_| PyValueError::new_err("Cannot receive data"))?;
+        let ret = Python::with_gil(|py| ZCommDataPy::from_rust(py, &res));
+        Ok(ret)
     }
 }
 
@@ -451,7 +423,7 @@ pub struct ZCommDataPy {
 
 impl ZCommDataPy {
     pub fn from_rust(py: Python, value: &ZCommData) -> Self {
-        let data = PyBytes::new(py, value.data.as_ref()).into();
+        let data = PyBytes::new_bound(py, value.data.as_ref()).into();
 
         Self {
             src: value.src.to_object(py),
@@ -463,10 +435,33 @@ impl ZCommDataPy {
 }
 
 pub(crate) fn into_py_dict(py: Python, data: HashMap<i8, ZCommData>) -> PyObject {
-    let py_dict = PyDict::new(py);
+    let py_dict = PyDict::new_bound(py);
 
     data.iter().for_each(|(k, v)| {
         let _ = py_dict.set_item(k, ZCommDataPy::from_rust(py, v).into_py(py));
     });
     py_dict.to_object(py)
+}
+
+#[pyclass]
+#[derive(Clone, Copy)]
+enum TAGS {
+    ALL = -1,
+    ANY = -2,
+}
+
+#[pyclass]
+#[derive(Clone, Copy)]
+enum SRCS {
+    ALL = -1,
+    ANY = -2,
+}
+
+#[pymodule]
+fn zcomm(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<ZCommDataPy>()?;
+    m.add_class::<ZCommPy>()?;
+    m.add_class::<TAGS>()?;
+    m.add_class::<SRCS>()?;
+    Ok(())
 }
