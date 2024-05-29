@@ -73,8 +73,9 @@ async def run(
 
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
-        for worker in range(n_workers):
-            data = await comm.recv(src=worker+1, tag=1000)
+        for worker in range(1, n_workers+1):
+            print(worker)
+            data = await comm.recv(src=worker, tag=10)
             for src, comm in data.items():
                 node_weights[src-1] = pickle.loads(comm.data)
             
@@ -90,7 +91,7 @@ async def run(
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
         
-        await comm.send(dest=0, tag=1000, data=pickle.dumps(len(train_dataset)))
+        await comm.send(dest=0, tag=10, data=pickle.dumps(len(train_dataset)))
 
     model_weights = pickle.loads(await comm.bcast(data=pickle.dumps(model_weights), root=0, tag=-10))
 
