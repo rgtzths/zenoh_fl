@@ -90,7 +90,7 @@ async def run(
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
         
-        await comm.send(0, pickle.dumps(len(train_dataset)), 1000)
+        await comm.send(0, 1000, pickle.dumps(len(train_dataset)))
 
     model_weights = pickle.loads(await comm.bcast(data=pickle.dumps(model_weights), root=0, tag=-10))
 
