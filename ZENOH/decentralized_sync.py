@@ -74,8 +74,8 @@ async def run(
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
         data = await comm.recv(SRCS.ALL, tag=1000)
-        for (src, t), nsamples in data.items():
-            node_weights[src-1] = nsamples
+        for src, comm in data.items():
+            node_weights[src-1] = comm.data()
         
         total_size = sum(node_weights)
 
