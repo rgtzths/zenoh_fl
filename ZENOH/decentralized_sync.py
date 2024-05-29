@@ -75,9 +75,9 @@ async def run(
         #of examples to create a weighted average of the model weights
         for worker in range(1, n_workers+1):
             print(worker)
-            data = await comm.recv(src=worker, tag=10)
-            for src, comm in data.items():
-                node_weights[src-1] = pickle.loads(comm.data)
+            data = await comm.recv(src=-2, tag=-10)
+            for src, message in data.items():
+                node_weights[src-1] = pickle.loads(message.data)
             
             total_size = sum(node_weights)
 
@@ -91,9 +91,9 @@ async def run(
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
         
-        await comm.send(dest=0, tag=10, data=pickle.dumps(len(train_dataset)))
+        await comm.send(dest=0, tag=-10, data=pickle.dumps(len(train_dataset)))
 
-    model_weights = pickle.loads(await comm.bcast(data=pickle.dumps(model_weights), root=0, tag=-10))
+    model_weights = pickle.loads( (await comm.bcast(data=pickle.dumps(model_weights), root=0, tag=-10)).data)
 
     if rank != 0:
         model.set_weights(model_weights)
@@ -106,12 +106,13 @@ async def run(
         if rank == 0:
 
             logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (global_epoch+1, time.time() - start))
-            data = pickle.loads(await comm.recv(SRCS.ALL, tag=global_epoch))
-            for (source, t), weights in data.items():
+            data = await comm.recv(-2, tag=global_epoch)
+            for src, message in data.items():
+                weights = pickle.loads(message.data)
                 if not avg_weights:
-                    avg_weights = [ weight * node_weights[source-1] for weight in weights]
+                    avg_weights = [ weight * node_weights[src-1] for weight in weights]
                 else:
-                    avg_weights = [ avg_weights[i] + weights[i] * node_weights[source-1] for i in range(len(weights))]
+                    avg_weights = [ avg_weights[i] + weights[i] * node_weights[src-1] for i in range(len(weights))]
 
         else:
             train_time = time.time()
@@ -119,10 +120,11 @@ async def run(
             results["times"]["train"].append(time.time() - train_time)
             await comm.send(dest=0, tag=global_epoch, data=pickle.dumps(model.get_weights()))
 
-        model.set_weights(pickle.loads(await comm.bcast(data=pickle.dumps(avg_weights), root=0, tag=-10)))
-        stop = pickle.loads(await comm.bcast(data=pickle.dumps(stop), root=0, tag=-10))
-
-        
+        message = await comm.bcast(data=pickle.dumps(avg_weights), root=0, tag=global_epoch)
+        model.set_weights(pickle.loads(message.data))
+            
+        message = await comm.bcast(data=pickle.dumps(stop), root=0, tag=global_epoch)
+        stop = pickle.loads(message.data)
 
         if rank != 0:
             results["times"]["epochs"].append(time.time() - epoch_start)
