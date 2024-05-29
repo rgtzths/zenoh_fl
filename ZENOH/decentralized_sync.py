@@ -73,7 +73,7 @@ async def run(
 
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
-        data = await comm.recv(source=SRCS.ALL, tag=1000)
+        data = await comm.recv(SRCS.ALL, tag=1000)
         for (src, t), nsamples in data.items():
             node_weights[src-1] = nsamples
         
@@ -103,7 +103,7 @@ async def run(
         if rank == 0:
 
             logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (global_epoch+1, time.time() - start))
-            data = pickle.loads(await comm.recv(source=SRCS.ALL, tag=global_epoch))
+            data = pickle.loads(await comm.recv(SRCS.ALL, tag=global_epoch))
             for (source, t), weights in data.items():
                 if not avg_weights:
                     avg_weights = [ weight * node_weights[source-1] for weight in weights]
