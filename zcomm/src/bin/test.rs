@@ -8,7 +8,7 @@
 use anyhow::Error;
 use clap::Parser;
 use std::{sync::Arc, time::Duration};
-use zcomm::ZComm;
+use zcomm::{ZComm, ALL_SRC, ANY_SRC};
 
 #[derive(Parser, Clone, PartialEq, Eq, Hash, Debug)]
 struct Args {
@@ -21,12 +21,14 @@ struct Args {
 async fn main() -> Result<(), Error> {
     let args = Args::parse();
 
-    let zcomm = ZComm::new(args.rank, args.workers, args.locator).await?;
+    let zcomm = ZComm::new(args.rank, args.workers, args.locator)
+        .await
+        .unwrap();
     let _ = zcomm.start();
 
     println!("Waiting for all nodes");
 
-    zcomm.wait().await?;
+    zcomm.wait().await.unwrap();
 
     println!("All nodes discovered");
 
@@ -61,6 +63,26 @@ async fn main() -> Result<(), Error> {
         zcomm.send(0, Arc::new(vec![9, 8, 7]), 20).await.unwrap();
         println!("[Rank {}][P2P] Send to {} 20", args.rank, 0);
     }
+
+    // receive from all
+    if args.rank == 0 {
+        let data = zcomm.recv(ALL_SRC, 15).await.unwrap();
+        println!("[Rank {}][P2P] Data: {:?}", args.rank, data);
+    } else {
+        zcomm.send(0, Arc::new(vec![5, 4, 3]), 15).await.unwrap();
+        println!("[Rank {}][P2P] Send to {} 15", args.rank, 0);
+    }
+
+    // receive from any
+    if args.rank == 0 {
+        let data = zcomm.recv(ANY_SRC, 30).await.unwrap();
+        println!("[Rank {}][P2P] Data: {:?}", args.rank, data);
+    } else {
+        zcomm.send(0, Arc::new(vec![3, 4, 5]), 30).await.unwrap();
+        println!("[Rank {}][P2P] Send to {} 30", args.rank, 0);
+    }
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     Ok(())
 }

@@ -24,5 +24,5 @@ zenoh-util = { version = "0.11.0-rc.3" }
 pyo3-build-config = { version = "0.20", features = ["resolve-config"] }
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib","rlib"]
 name = "zcomm"

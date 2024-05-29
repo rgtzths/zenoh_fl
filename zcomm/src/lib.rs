@@ -155,7 +155,9 @@ impl ZComm {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn send(&self, dest: i8, data: Arc<Vec<u8>>, tag: i8) -> Result<(), Error> {
+        tracing::debug!("send({dest},{tag}) => len({})", data.len());
         let msg = ZCommData {
             src: self.rank,
             dest,
@@ -174,7 +176,9 @@ impl ZComm {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn bcast(&self, root: i8, data: Arc<Vec<u8>>, tag: i8) -> Result<ZCommData, Error> {
+        tracing::debug!("bast({root},{tag}) => len({})", data.len());
         if self.rank == root {
             for i in 0..self.expected {
                 if i == self.rank {
@@ -197,7 +201,9 @@ impl ZComm {
         self.recv_single(root, tag).await
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn recv_single(&self, src: i8, tag: i8) -> Result<ZCommData, Error> {
+        tracing::debug!("recv_single({src},{tag})");
         if src == ALL_SRC {
             panic!("The recv_single is supposed to receive from a single source");
         } else if src == ANY_SRC {
@@ -212,10 +218,12 @@ impl ZComm {
             let mut queue_guard = self.msg_queue.write().await;
 
             index = queue_guard.iter().position(|(s, _t)| *s == src);
+            tracing::debug!("Position is {index:?}");
             // here we should cover the ANY_TAG case
             data = data_guard
                 .get_mut(&src)
                 .and_then(|hm| hm.get_mut(&tag).and_then(|dq| dq.pop_front()));
+            tracing::debug!("Data is {data:?}");
 
             // removing from received if data is found
             match data {
@@ -232,7 +240,9 @@ impl ZComm {
         Ok(data.unwrap())
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn recv(&self, src: i8, tag: i8) -> Result<HashMap<i8, ZCommData>, Error> {
+        tracing::debug!("recv({src},{tag})");
         if src == ALL_SRC {
             return self.recv_from_all(tag).await;
         } else if src == ANY_SRC {
@@ -265,6 +275,7 @@ impl ZComm {
         Ok(data)
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn wait(&self) -> Result<(), Error> {
         // this could be improved with Group Management, but information about who #
         // is in the group is not available yet
@@ -299,7 +310,9 @@ impl ZComm {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn recv_from_all(&self, tag: i8) -> Result<HashMap<i8, ZCommData>, Error> {
+        tracing::debug!("recv_from_all({tag})");
         let mut data = HashMap::new();
 
         for i in 0..self.expected {
@@ -313,16 +326,21 @@ impl ZComm {
         Ok(data)
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn recv_from_any(&self, tag: i8) -> Result<HashMap<i8, ZCommData>, Error> {
+        tracing::debug!("recv_from_any({tag})");
         let mut data = HashMap::new();
 
         while self.msg_queue.read().await.len() == 0 {
             yield_now().await;
         }
 
-        let mut guard = self.msg_queue.write().await;
+        let guard = self.msg_queue.read().await;
         // should not unwrap here but len is > 0
-        let ready_src = guard.pop_front().map(|(src, _)| src).unwrap();
+        let ready_src = *guard.front().map(|(src, _)| src).unwrap();
+        tracing::debug!("recv_from_any({tag}) ready_src: {ready_src}");
+
+        drop(guard);
 
         data.insert(ready_src, self.recv_single(ready_src, tag).await?);
 
