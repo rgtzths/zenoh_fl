@@ -59,7 +59,7 @@ async def run(
     #comm = ZComm(rank, n_workers)
 
     logging.info(f'[RANK: {rank}] Waiting nodes...')
-    await comm.wait(n_workers+1)
+    await comm.wait()
     logging.info(f'[RANK: {rank}] Nodes up!')
     
     start = time.time()
