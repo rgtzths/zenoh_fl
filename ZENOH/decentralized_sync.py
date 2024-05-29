@@ -12,14 +12,16 @@ import time
 import logging
 import numpy as np
 import tensorflow as tf
-from ZENOH.zcomm import ZComm, ALL_SRC, ANY_SRC
+from zcomm import ZCommPy, ZCommDataPy, TAGS, SRCS
+
+#from ZENOH.zcomm import ZComm, ALL_SRC, ANY_SRC
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)
 
 tf.keras.utils.set_random_seed(42)
 
-def run(
+async def run(
     dataset_util,
     optimizer,
     early_stop,
@@ -31,7 +33,8 @@ def run(
     min_delta,
     n_workers,
     rank,
-    output
+    output,
+    locator
 ):
 
     stop = False
@@ -51,10 +54,12 @@ def run(
     )
     model_weights = None
 
-    comm = ZComm(rank, n_workers)
+    comm = await ZCommPy.new(rank, n_workers, locator)
+    comm.start()
+    #comm = ZComm(rank, n_workers)
 
     logging.info(f'[RANK: {rank}] Waiting nodes...')
-    comm.wait(n_workers+1)
+    await comm.wait(n_workers+1)
     logging.info(f'[RANK: {rank}] Nodes up!')
     
     start = time.time()
@@ -67,7 +72,7 @@ def run(
 
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
-        data = comm.recv(source=ALL_SRC, tag=1000)
+        data = await comm.recv(source=SRCS.ALL_SRC, tag=1000)
         for (src, t), nsamples in data.items():
             node_weights[src-1] = nsamples
         
@@ -82,9 +87,9 @@ def run(
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)        
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
-        comm.send(dest=0, tag=1000, data=len(train_dataset))
+        await comm.send(dest=0, tag=1000, data=len(train_dataset))
 
-    model_weights = comm.bcast(data=model_weights, root=0, tag=-10)
+    model_weights = await comm.bcast(data=model_weights, root=0, tag=-10)
 
     if rank != 0:
         model.set_weights(model_weights)
@@ -97,7 +102,7 @@ def run(
         if rank == 0:
 
             logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (global_epoch+1, time.time() - start))
-            data = comm.recv(source=ALL_SRC, tag=global_epoch)
+            data =await comm.recv(source=SRCS.ALL_SRC, tag=global_epoch)
             for (source, t), weights in data.items():
                 if not avg_weights:
                     avg_weights = [ weight * node_weights[source-1] for weight in weights]
@@ -108,10 +113,10 @@ def run(
             train_time = time.time()
             model.fit(train_dataset, epochs=local_epochs, verbose=0)
             results["times"]["train"].append(time.time() - train_time)
-            comm.send(dest=0, tag=global_epoch, data=model.get_weights())
+            await comm.send(dest=0, tag=global_epoch, data=model.get_weights())
 
-        model.set_weights(comm.bcast(data=avg_weights, root=0, tag=-10))
-        stop = comm.bcast(data=stop, root=0, tag=-10)
+        model.set_weights(await comm.bcast(data=avg_weights, root=0, tag=-10))
+        stop = await comm.bcast(data=stop, root=0, tag=-10)
 
         
 

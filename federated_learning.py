@@ -9,6 +9,7 @@ from ZENOH.centralized_sync import run as zenoh_centralized_sync
 from ZENOH.decentralized_async import run as zenoh_decentralized_async
 from ZENOH.decentralized_sync import run as zenoh_decentralized_sync
 from ZENOH.debug import run as zenoh_debug
+import asyncio
 
 from config import DATASETS, OPTIMIZERS
 
@@ -55,6 +56,6 @@ else:
         case 3:
             zenoh_decentralized_async(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.a,args.p, args.md,  args.nw, args.wid, args.f)
         case 4:
-            zenoh_decentralized_sync(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.p, args.md, args.nw, args.wid, args.f)
+            asyncio.run(zenoh_decentralized_sync(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.p, args.md, args.nw, args.wid, args.f, "tcp/127.0.0.1:7447"))
         case 5:
             zenoh_debug(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.a,args.p, args.md, args.nw, args.wid, args.f)
