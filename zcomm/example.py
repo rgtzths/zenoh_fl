@@ -15,7 +15,7 @@ async def asyncio_main(rank, workers, locator):
 
     # send to all nodes
 
-    data = await zcomm.bcast(src=0, data=b'123', tag=100)
+    data = await zcomm.bcast(0, data=b'123', tag=100)
 
     print(f"[Rank {rank}][BCAST] Data: {data}")
 
