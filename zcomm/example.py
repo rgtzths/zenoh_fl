@@ -1,7 +1,7 @@
 from zcomm import ZCommPy, ZCommDataPy, TAGS, SRCS
 import asyncio
 import argparse
-
+import pickle
 
 
 async def asyncio_main(rank, workers, locator):
@@ -25,12 +25,12 @@ async def asyncio_main(rank, workers, locator):
 
     if rank == 0:
         for i in range(1, workers+1):
-            await zcomm.send(dest=i, data=b'123', tag=10)
+            await zcomm.send(dest=i, data=pickle.dumps(b'123'), tag=10)
             print(f"[Rank {rank}][P2P] Send to {i} 10")
     else:
         data = await zcomm.recv(src=0, tag=10)
         for src, comm in data.items():
-            print(f"[Rank {rank}][P2P] Data {comm.data}")
+            print(f"[Rank {rank}][P2P] Data {pickle.loads(comm.data)}")
 
     await asyncio.sleep(2)
 
