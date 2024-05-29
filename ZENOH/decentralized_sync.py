@@ -73,11 +73,12 @@ async def run(
 
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
-        data = await comm.recv(-2, 1000)
-        for src, comm in data.items():
-            node_weights[src-1] = pickle.loads(comm.data())
-        
-        total_size = sum(node_weights)
+        for worker in range(n_workers):
+            data = await comm.recv(worker+1, 1000)
+            for src, comm in data.items():
+                node_weights[src-1] = pickle.loads(comm.data())
+            
+            total_size = sum(node_weights)
 
         node_weights = [weight/total_size for weight in node_weights]
 
