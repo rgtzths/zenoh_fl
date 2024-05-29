@@ -73,6 +73,8 @@ async fn main() -> Result<(), Error> {
         println!("[Rank {}][P2P] Send to {} 15", args.rank, 0);
     }
 
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
     // receive from any
     if args.rank == 0 {
         let data = zcomm.recv(ANY_SRC, 30).await.unwrap();

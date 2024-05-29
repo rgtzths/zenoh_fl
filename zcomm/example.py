@@ -45,6 +45,25 @@ async def asyncio_main(rank, workers, locator):
         print(f"[Rank {rank}][P2P] Send to 0 20")
 
 
+    ## receive from all
+    if rank == 0:
+        data = await zcomm.recv(src=-1, tag=30)
+        print(f"[Rank {rank}][P2P] Data {data}")
+    else:
+        await zcomm.send(0, b'987', 30)
+        print(f"[Rank {rank}][P2P] Send to 0 30")
+
+    await asyncio.sleep(2)
+
+     ## receive from any
+    if rank == 0:
+        data = await zcomm.recv(src=-2, tag=40)
+        print(f"[Rank {rank}][P2P] Data {data}")
+           
+    else:
+        await zcomm.send(0, b'456', 40)
+        print(f"[Rank {rank}][P2P] Send to 0 40")
+
     await asyncio.sleep(2)
     return None
 
