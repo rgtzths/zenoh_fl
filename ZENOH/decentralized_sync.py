@@ -13,6 +13,7 @@ import logging
 import numpy as np
 import tensorflow as tf
 from zcomm import ZCommPy, ZCommDataPy, TAGS, SRCS
+import pickle
 
 #from ZENOH.zcomm import ZComm, ALL_SRC, ANY_SRC
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
@@ -72,7 +73,7 @@ async def run(
 
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
-        data = await comm.recv(source=SRCS.ALL_SRC, tag=1000)
+        data = await comm.recv(source=SRCS.ALL, tag=1000)
         for (src, t), nsamples in data.items():
             node_weights[src-1] = nsamples
         
@@ -89,7 +90,7 @@ async def run(
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
         await comm.send(dest=0, tag=1000, data=len(train_dataset))
 
-    model_weights = await comm.bcast(data=model_weights, root=0, tag=-10)
+    model_weights = pickle.loads(await comm.bcast(data=pickle.dumps(model_weights), root=0, tag=-10))
 
     if rank != 0:
         model.set_weights(model_weights)
@@ -102,7 +103,7 @@ async def run(
         if rank == 0:
 
             logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (global_epoch+1, time.time() - start))
-            data =await comm.recv(source=SRCS.ALL_SRC, tag=global_epoch)
+            data = pickle.loads(await comm.recv(source=SRCS.ALL, tag=global_epoch))
             for (source, t), weights in data.items():
                 if not avg_weights:
                     avg_weights = [ weight * node_weights[source-1] for weight in weights]
@@ -113,10 +114,10 @@ async def run(
             train_time = time.time()
             model.fit(train_dataset, epochs=local_epochs, verbose=0)
             results["times"]["train"].append(time.time() - train_time)
-            await comm.send(dest=0, tag=global_epoch, data=model.get_weights())
+            await comm.send(dest=0, tag=global_epoch, data=pickle.dumps(model.get_weights()))
 
-        model.set_weights(await comm.bcast(data=avg_weights, root=0, tag=-10))
-        stop = await comm.bcast(data=stop, root=0, tag=-10)
+        model.set_weights(pickle.loads(await comm.bcast(data=pickle.dumps(avg_weights), root=0, tag=-10)))
+        stop = pickle.loads(await comm.bcast(data=pickle.dumps(stop), root=0, tag=-10))
 
         
 
