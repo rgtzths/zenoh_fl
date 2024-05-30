@@ -217,7 +217,7 @@ impl ZComm {
             let mut data_guard = self.data.write().await;
             let mut queue_guard = self.msg_queue.write().await;
 
-            index = queue_guard.iter().position(|(s, _t)| *s == src);
+            index = queue_guard.iter().position(|(s, t)| *s == src && *t == tag);
             tracing::debug!("Position is {index:?}");
             // here we should cover the ANY_TAG case
             data = data_guard
@@ -335,12 +335,43 @@ impl ZComm {
             yield_now().await;
         }
 
-        let guard = self.msg_queue.read().await;
-        // should not unwrap here but len is > 0
-        let ready_src = *guard.front().map(|(src, _)| src).unwrap();
-        tracing::debug!("recv_from_any({tag}) ready_src: {ready_src}");
+        let (ready_src, ready_tag) = match tag {
+            ANY_TAG => {
+                let guard = self.msg_queue.read().await;
+                // should not unwrap here but len is > 0
+                let (ready_src, ready_tag) = guard.front().map(|(src, tag)| (*src, *tag)).unwrap();
+                drop(guard);
+                (ready_src, ready_tag)
+            }
+            _ => {
+                let mut pos = self
+                    .msg_queue
+                    .read()
+                    .await
+                    .iter()
+                    .position(|(_s, t)| *t == tag);
+                while pos.is_none() {
+                    yield_now().await;
+                    pos = self
+                        .msg_queue
+                        .read()
+                        .await
+                        .iter()
+                        .position(|(_s, t)| *t == tag);
+                }
 
-        drop(guard);
+                let (ready_src, ready_tag) = self
+                    .msg_queue
+                    .read()
+                    .await
+                    .get(pos.unwrap())
+                    .map(|(s, t)| (*s, *t))
+                    .unwrap();
+                (ready_src, ready_tag)
+            }
+        };
+
+        tracing::debug!("recv_from_any({tag}) ready_src: {ready_src} ready_tag: {ready_tag}");
 
         data.insert(ready_src, self.recv_single(ready_src, tag).await?);
 
@@ -449,6 +480,20 @@ impl ZCommDataPy {
             tag: value.tag.to_object(py),
             data,
         }
+    }
+}
+
+#[pymethods]
+impl ZCommDataPy {
+    fn __repr__(&self) -> String {
+        format!(
+            "ZCommDataPy(src:{}, dest:{}, tag:{}, data:{})",
+            self.src, self.dest, self.tag, self.data
+        )
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
     }
 }
 
