@@ -74,9 +74,9 @@ async def run(
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
         for worker in range(1, n_workers+1):
-            print(worker)
             data = await comm.recv(src=-2, tag=-10)
             for src, message in data.items():
+                print(src)
                 node_weights[src-1] = pickle.loads(message.data)
             
             total_size = sum(node_weights)
@@ -106,13 +106,14 @@ async def run(
         if rank == 0:
 
             logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (global_epoch+1, time.time() - start))
-            data = await comm.recv(-2, tag=global_epoch)
-            for src, message in data.items():
-                weights = pickle.loads(message.data)
-                if not avg_weights:
-                    avg_weights = [ weight * node_weights[src-1] for weight in weights]
-                else:
-                    avg_weights = [ avg_weights[i] + weights[i] * node_weights[src-1] for i in range(len(weights))]
+            for worker in range(1, n_workers+1):
+                data = await comm.recv(src=-2, tag=global_epoch)
+                for src, message in data.items():
+                    weights = pickle.loads(message.data)
+                    if not avg_weights:
+                        avg_weights = [ weight * node_weights[src-1] for weight in weights]
+                    else:
+                        avg_weights = [ avg_weights[i] + weights[i] * node_weights[src-1] for i in range(len(weights))]
 
         else:
             train_time = time.time()
