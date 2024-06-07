@@ -30,9 +30,9 @@ class Util:
         x_train_subset_[i].csv, y_train_subset_[i].csv, where i = 1, 2, ..., n_workers
         """
         print(f'Dividing the data for {n_workers} workers...')
-        x_train_path = f"{self.name}/data/X_train.csv"
-        y_train_path = f"{self.name}/data/y_train.csv"
-        output_path = f"{self.name}/data/{n_workers}_workers"
+        x_train_path = f"datasets/{self.name}/data/X_train.csv"
+        y_train_path = f"datasets/{self.name}/data/y_train.csv"
+        output_path = f"datasets/{self.name}/data/{n_workers}_workers"
         output = Path(output_path)
         output.mkdir(parents=True, exist_ok=True)
         x_train = pd.read_csv(x_train_path)
@@ -54,8 +54,8 @@ class Util:
         """
         Load the training data
         """
-        x_train = pd.read_csv(f"{self.name}/data/X_train.csv")
-        y_train = pd.read_csv(f"{self.name}/data/y_train.csv")
+        x_train = pd.read_csv(f"datasets/{self.name}/data/X_train.csv")
+        y_train = pd.read_csv(f"datasets/{self.name}/data/y_train.csv")
         return x_train, y_train
 
 
@@ -64,8 +64,8 @@ class Util:
         """
         Load the validation data
         """
-        x_val = pd.read_csv(f"{self.name}/data/X_val.csv")
-        y_val = pd.read_csv(f"{self.name}/data/y_val.csv")
+        x_val = pd.read_csv(f"datasets/{self.name}/data/X_val.csv")
+        y_val = pd.read_csv(f"datasets/{self.name}/data/y_val.csv")
         return x_val, y_val
 
 
@@ -74,8 +74,8 @@ class Util:
         """
         Load the test data
         """
-        x_test = pd.read_csv(f"{self.name}/data/X_test.csv")
-        y_test = pd.read_csv(f"{self.name}/data/y_test.csv")
+        x_test = pd.read_csv(f"datasets/{self.name}/data/X_test.csv")
+        y_test = pd.read_csv(f"datasets/{self.name}/data/y_test.csv")
         return x_test, y_test
 
 
@@ -84,8 +84,8 @@ class Util:
         """
         Load the data of a worker
         """
-        x_train = pd.read_csv(f"{self.name}/data/{n_workers}_workers/x_train_subset_{worker_id}.csv", header=None)
-        y_train = pd.read_csv(f"{self.name}/data/{n_workers}_workers/y_train_subset_{worker_id}.csv", header=None)
+        x_train = pd.read_csv(f"datasets/{self.name}/data/{n_workers}_workers/x_train_subset_{worker_id}.csv", header=None)
+        y_train = pd.read_csv(f"datasets/{self.name}/data/{n_workers}_workers/y_train_subset_{worker_id}.csv", header=None)
         return x_train, y_train
 
 

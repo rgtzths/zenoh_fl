@@ -1,7 +1,7 @@
 import json
 
-filename1 = "results/IOT_DNL/mpi/centralized_async/4_200*/server.json"
-filename2 = "results/IOT_DNL/zenoh/centralized_async/4_200/server.json"
+filename1 = "../results/IOT_DNL/mpi/centralized_async/4_200*/server.json"
+filename2 = "../results/IOT_DNL/zenoh/centralized_async/4_200/server.json"
 model_1 = json.load(open(filename1))
 model_2 = json.load(open(filename2))
 

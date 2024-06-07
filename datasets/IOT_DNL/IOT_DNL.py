@@ -14,8 +14,8 @@ class IOT_DNL(Util):
 
 
     def data_processing(self):
-        dataset = f"{self.name}/data/data.csv"
-        output = f"{self.name}/data"
+        dataset = f"datasets/{self.name}/data/data.csv"
+        output = f"datasets/{self.name}/data"
         Path(output).mkdir(parents=True, exist_ok=True)
 
         data = pd.read_csv(dataset)

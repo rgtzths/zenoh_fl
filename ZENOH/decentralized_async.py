@@ -12,7 +12,8 @@ import time
 import logging
 import numpy as np
 import tensorflow as tf
-from ZENOH.zcomm import ZComm, ALL_SRC, ANY_SRC, ANY_TAG
+from zcomm import ZCommPy
+import pickle
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)
@@ -20,7 +21,7 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=log
 tf.keras.utils.set_random_seed(42)
 
 
-def run(
+async def run(
     dataset_util, 
     optimizer,
     early_stop,
@@ -33,7 +34,8 @@ def run(
     min_delta,
     n_workers,
     rank,
-    output
+    output,
+    locator
 ):
 
     stop = False
@@ -54,10 +56,12 @@ def run(
 
     model_weights = None
 
-    comm = ZComm(rank, n_workers)
+    comm = await ZCommPy.new(rank, n_workers, locator)
+    comm.start()
+    #comm = ZComm(rank, n_workers)
 
     logging.info(f'[RANK: {rank}] Waiting nodes...')
-    comm.wait(n_workers+1)
+    await comm.wait()
     logging.info(f'[RANK: {rank}] Nodes up!')
 
     '''
@@ -77,9 +81,9 @@ def run(
 
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
-        data = comm.recv(source=ALL_SRC, tag=1000)
-        for (source,src_tag), n_examples in data.items():
-            node_weights[source-1] = n_examples
+        data = await comm.recv(src=-2, tag=-10)
+        for source, message in data.items():
+            node_weights[source-1] = pickle.loads(message.data)
         
         biggest_n_examples = max(node_weights)
 
@@ -93,12 +97,14 @@ def run(
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
 
+        await comm.send(dest=0, tag=-10, data=pickle.dumps(len(train_dataset)))
+
         comm.send(dest=0, data=len(train_dataset), tag=1000)
 
     '''
     Parameter server shares its values so every worker starts from the same point.
     '''
-    model_weights = comm.bcast(data=model_weights, root=0, tag=0)
+    model_weights = pickle.loads( (await comm.bcast(data=pickle.dumps(model_weights), root=0, tag=-10)).data)
 
     if rank != 0:
         model.set_weights(model_weights)
@@ -118,18 +124,18 @@ def run(
 
                 logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (epoch//n_workers+1, time.time() - start))
 
-            data = comm.recv(source=ANY_SRC, tag=ANY_TAG)
+            data = await comm.recv(src=-2, tag=-2)
 
-            for (source, src_tag), weights in data.items():
+            for source, message in data.items():
+                weights = pickle.loads(message.data)
                 weight_diffs = [ (weight - local_weights[idx])*alpha*node_weights[source-1]
                                 for idx, weight in enumerate(weights)]
                 
                 local_weights = [local_weights[idx] + weight
                                 for idx, weight in enumerate(weight_diffs)]
 
-            comm.send(data=weight_diffs, dest=source, tag=src_tag)
-            
-            comm.send(data=stop, dest=source, tag=src_tag)
+            await comm.send(dest=source, tag=data.src_tag, data=pickle.dumps(model.get_weights()))
+            await comm.send(dest=source, tag=data.src_tag, data=pickle.dumps(stop))
 
             if stop:
                 exited_workers +=1
@@ -170,16 +176,15 @@ def run(
             train_time = time.time()
             model.fit(train_dataset, epochs=local_epochs, verbose=0)
             results["times"]["train"].append(time.time() - train_time)
-
-            comm.send(data=model.get_weights(), dest=0, tag=global_epoch)
-
-            data = comm.recv(source=0, tag=global_epoch)
-            for (s, t), value in data.items():
-                weight_diffs = value
+            await comm.send(data=pickle.dumps(model.get_weights()), dest=0, tag=global_epoch)
 
             data = comm.recv(source=0, tag=global_epoch)
-            for (s, t), value in data.items():
-                stop = value
+            for src, message in data.items():
+                weight_diffs = pickle.loads(message.data)
+
+            data = comm.recv(source=0, tag=global_epoch)
+            for src, message in data.items():
+                stop = pickle.loads(message.data)
 
             weights = [weight - weight_diffs[idx]
                             for idx, weight in enumerate(model.get_weights())]
@@ -201,4 +206,3 @@ def run(
     else:
         with open(output/f"worker{rank}.json", "w") as f:
             f.write(history)
-    comm.close()

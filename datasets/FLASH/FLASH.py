@@ -27,8 +27,8 @@ class FLASH(Util):
 
 
     def load_validation_data(self):
-        x_val = np.load(f"{self.name}/data/x_test.npz")["data"]
-        y_val = np.load(f"{self.name}/data/y_test.npz")["data"]
+        x_val = np.load(f"datasets/{self.name}/data/x_test.npz")["data"]
+        y_val = np.load(f"datasets/{self.name}/data/y_test.npz")["data"]
         y_val, _ = self.custom_label(y_val)
         return x_val, y_val
     
@@ -40,8 +40,8 @@ class FLASH(Util):
 
 
     def load_worker_data(self, n_workers, worker_id):
-        x_train = np.load(f"{self.name}/data/{n_workers}_workers/x_train_subset_{worker_id}.npz")["data"]
-        y_train = np.load(f"{self.name}/data/{n_workers}_workers/y_train_subset_{worker_id}.npz")["data"]
+        x_train = np.load(f"datasets/{self.name}/data/{n_workers}_workers/x_train_subset_{worker_id}.npz")["data"]
+        y_train = np.load(f"datasets/{self.name}/data/{n_workers}_workers/y_train_subset_{worker_id}.npz")["data"]
         y_train, _ = self.custom_label(y_train)
 
         return x_train, y_train
@@ -49,8 +49,8 @@ class FLASH(Util):
 
 
     def create_model(self):
-        x_val = np.load(f"{self.name}/data/x_test.npz")["data"]
-        y_val = np.load(f"{self.name}/data/y_test.npz")["data"]
+        x_val = np.load(f"datasets/{self.name}/data/x_test.npz")["data"]
+        y_val = np.load(f"datasets/{self.name}/data/y_test.npz")["data"]
         _, num_classes = self.custom_label(y_val)
         input_shape = x_val.shape[1:]
         return self.create_lidar_model(input_shape, num_classes)

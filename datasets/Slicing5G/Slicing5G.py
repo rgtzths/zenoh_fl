@@ -14,8 +14,8 @@ class Slicing5G(Util):
 
 
     def data_processing(self):
-        dataset = f"{self.name}/data/raw_data.xlsx"
-        output = f"{self.name}/data"
+        dataset = f"datasets/{self.name}/data/raw_data.xlsx"
+        output = f"datasets/{self.name}/data"
         # create the output folder if it does not exist
         Path(output).mkdir(parents=True, exist_ok=True)
 

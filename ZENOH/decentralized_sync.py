@@ -12,7 +12,7 @@ import time
 import logging
 import numpy as np
 import tensorflow as tf
-from zcomm import ZCommPy, ZCommDataPy, TAGS, SRCS
+from zcomm import ZCommPy
 import pickle
 
 #from ZENOH.zcomm import ZComm, ALL_SRC, ANY_SRC
@@ -76,7 +76,6 @@ async def run(
         for worker in range(1, n_workers+1):
             data = await comm.recv(src=-2, tag=-10)
             for src, message in data.items():
-                print(src)
                 node_weights[src-1] = pickle.loads(message.data)
             
             total_size = sum(node_weights)
@@ -170,5 +169,3 @@ async def run(
     else:
         with open(output/f"worker{rank}.json", "w") as f:
             f.write(history)
-
-    comm.close()
