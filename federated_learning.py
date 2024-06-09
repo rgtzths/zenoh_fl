@@ -41,6 +41,6 @@ if args.c == "mpi":
 else:
     match args.m:
         case 1:
-            zenoh_decentralized_async(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.a,args.p, args.md,  args.nw, args.wid, args.f, "tcp/127.0.0.1:7447")
+            asyncio.run(zenoh_decentralized_async(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.a,args.p, args.md,  args.nw, args.wid, args.f, "tcp/127.0.0.1:7447"))
         case 2:
             asyncio.run(zenoh_decentralized_sync(DATASETS[args.d], OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.p, args.md, args.nw, args.wid, args.f, "tcp/127.0.0.1:7447"))
