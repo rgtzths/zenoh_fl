@@ -31,14 +31,14 @@ pub type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub const ALL_SRC: i8 = -1;
 pub const ANY_SRC: i8 = -2;
 
-pub const ALL_TAG: i8 = -1;
-pub const ANY_TAG: i8 = -2;
+pub const ALL_TAG: i32 = -1;
+pub const ANY_TAG: i32 = -2;
 
 #[derive(Encode, Decode, Debug)]
 pub struct ZCommData {
     pub src: i8,
     pub dest: i8,
-    pub tag: i8,
+    pub tag: i32,
     pub data: Arc<Vec<u8>>,
 }
 
@@ -46,9 +46,9 @@ pub struct ZCommData {
 pub struct ZComm {
     pub session: Arc<Session>,
     pub rank: i8,
-    pub data: Arc<RwLock<HashMap<i8, HashMap<i8, VecDeque<ZCommData>>>>>,
+    pub data: Arc<RwLock<HashMap<i8, HashMap<i32, VecDeque<ZCommData>>>>>,
     pub cv_map: Arc<RwLock<HashMap<i8, HashMap<i8, Condvar>>>>,
-    pub msg_queue: Arc<RwLock<VecDeque<(i8, i8)>>>,
+    pub msg_queue: Arc<RwLock<VecDeque<(i8, i32)>>>,
     pub expected: i8,
     pub ke_data: String,
     pub ke_live_queriable: String,
@@ -156,7 +156,7 @@ impl ZComm {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn send(&self, dest: i8, data: Arc<Vec<u8>>, tag: i8) -> Result<(), Error> {
+    pub async fn send(&self, dest: i8, data: Arc<Vec<u8>>, tag: i32) -> Result<(), Error> {
         tracing::debug!("send({dest},{tag}) => len({})", data.len());
         let msg = ZCommData {
             src: self.rank,
@@ -177,7 +177,7 @@ impl ZComm {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn bcast(&self, root: i8, data: Arc<Vec<u8>>, tag: i8) -> Result<ZCommData, Error> {
+    pub async fn bcast(&self, root: i8, data: Arc<Vec<u8>>, tag: i32) -> Result<ZCommData, Error> {
         tracing::debug!("bast({root},{tag}) => len({})", data.len());
         if self.rank == root {
             for i in 0..self.expected {
@@ -202,7 +202,7 @@ impl ZComm {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn recv_single(&self, src: i8, tag: i8) -> Result<ZCommData, Error> {
+    pub async fn recv_single(&self, src: i8, tag: i32) -> Result<ZCommData, Error> {
         tracing::debug!("recv_single({src},{tag})");
         if src == ALL_SRC {
             panic!("The recv_single is supposed to receive from a single source");
@@ -241,7 +241,7 @@ impl ZComm {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn recv(&self, src: i8, tag: i8) -> Result<HashMap<i8, ZCommData>, Error> {
+    pub async fn recv(&self, src: i8, tag: i32) -> Result<HashMap<i8, ZCommData>, Error> {
         tracing::debug!("recv({src},{tag})");
         if src == ALL_SRC {
             return self.recv_from_all(tag).await;
@@ -253,12 +253,12 @@ impl ZComm {
 
         match tag {
             ANY_TAG => {
-                let mut any_tag: Option<i8> = None;
+                let mut any_tag: Option<i32> = None;
                 while any_tag.is_none() {
                     let mut data_guard = self.data.write().await;
                     any_tag = data_guard
                         .get_mut(&src)
-                        .and_then(|hm| Some(hm.keys().copied().collect::<Vec<i8>>()))
+                        .and_then(|hm| Some(hm.keys().copied().collect::<Vec<i32>>()))
                         .unwrap_or_default()
                         .pop();
                     yield_now().await;
@@ -311,7 +311,7 @@ impl ZComm {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn recv_from_all(&self, tag: i8) -> Result<HashMap<i8, ZCommData>, Error> {
+    pub async fn recv_from_all(&self, tag: i32) -> Result<HashMap<i8, ZCommData>, Error> {
         tracing::debug!("recv_from_all({tag})");
         let mut data = HashMap::new();
 
@@ -327,7 +327,7 @@ impl ZComm {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn recv_from_any(&self, tag: i8) -> Result<HashMap<i8, ZCommData>, Error> {
+    pub async fn recv_from_any(&self, tag: i32) -> Result<HashMap<i8, ZCommData>, Error> {
         tracing::debug!("recv_from_any({tag})");
         let mut data = HashMap::new();
 
@@ -422,7 +422,7 @@ impl ZCommPy {
         Ok(())
     }
 
-    pub async fn recv<'p>(&'p self, src: i8, tag: i8) -> PyResult<PyObject> {
+    pub async fn recv<'p>(&'p self, src: i8, tag: i32) -> PyResult<PyObject> {
         let inner = self.inner.clone();
 
         let res = tokio()
@@ -434,7 +434,7 @@ impl ZCommPy {
         Ok(ret)
     }
 
-    pub async fn send<'p>(&'p self, dest: i8, data: Vec<u8>, tag: i8) -> PyResult<()> {
+    pub async fn send<'p>(&'p self, dest: i8, data: Vec<u8>, tag: i32) -> PyResult<()> {
         let inner = self.inner.clone();
         let data = Arc::new(data);
         tokio()
@@ -445,7 +445,7 @@ impl ZCommPy {
         Ok(())
     }
 
-    pub async fn bcast<'p>(&'p self, root: i8, data: Vec<u8>, tag: i8) -> PyResult<ZCommDataPy> {
+    pub async fn bcast<'p>(&'p self, root: i8, data: Vec<u8>, tag: i32) -> PyResult<ZCommDataPy> {
         let inner = self.inner.clone();
         let data = Arc::new(data);
         let res = tokio()
