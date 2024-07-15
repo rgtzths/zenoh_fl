@@ -14,7 +14,7 @@ class Slicing5G(Util):
 
 
     def data_processing(self):
-        dataset = f"datasets/{self.name}/data/raw_data.xlsx"
+        dataset = f"datasets/{self.name}/data/5G_Dataset_Network_Slicing_CRAWDAD_Shared.xlsx"
         output = f"datasets/{self.name}/data"
         # create the output folder if it does not exist
         Path(output).mkdir(parents=True, exist_ok=True)

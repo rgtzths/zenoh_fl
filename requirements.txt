@@ -1,7 +1,8 @@
-#tensorflow
-#mpi4py
+tensorflow
+mpi4py
 pandas
 scikit-learn
 matplotlib
-eclipse-zenoh==0.10.0rc0
+#eclipse-zenoh==0.10.0rc0
 transformers
+openpyxl
