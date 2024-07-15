@@ -99,8 +99,6 @@ async def run(
 
         await comm.send(dest=0, tag=-10, data=pickle.dumps(len(train_dataset)))
 
-        comm.send(dest=0, data=len(train_dataset), tag=1000)
-
     '''
     Parameter server shares its values so every worker starts from the same point.
     '''
