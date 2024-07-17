@@ -19,4 +19,4 @@ do
 done
 
 #echo "python3 federated_learning.py -m $m -d $d -ge $g -le $l -lr $r -b $b -o $o -s $s -p $p"
-python3 federated_learning.py -m $m -d $d -ge $g -le $l -lr $r -b $b -o $o -s $s -p $p -a $a;
+python3 federated_learning.py -m $m -d $d -ge $g -le $l -lr $r -b $b -o $o -s $s -p $p -a $a --distribution $n;

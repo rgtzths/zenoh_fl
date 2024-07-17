@@ -40,7 +40,7 @@ async def run(
 
     stop = False
     dataset = dataset_util.name
-    patience_buffer = [0]*patience
+    patience_buffer = [-1]*patience
 
     output = f"{output}/{dataset}/zenoh/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}_{batch_size}"
     output = pathlib.Path(output)
@@ -81,9 +81,10 @@ async def run(
 
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
-        data = await comm.recv(src=-2, tag=-10)
-        for source, message in data.items():
-            node_weights[source-1] = pickle.loads(message.data)
+        for worker in range(1, n_workers+1):
+            data = await comm.recv(src=-2, tag=-10)
+            for source, message in data.items():
+                node_weights[source-1] = pickle.loads(message.data)
         
         biggest_n_examples = max(node_weights)
 
@@ -119,7 +120,6 @@ async def run(
 
         for epoch in range(global_epochs*(n_workers)):
             if epoch % n_workers == 0:
-
                 logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (epoch//n_workers+1, time.time() - start))
 
             data = await comm.recv(src=-2, tag=-2)
@@ -132,8 +132,8 @@ async def run(
                 local_weights = [local_weights[idx] + weight
                                 for idx, weight in enumerate(weight_diffs)]
 
-            await comm.send(dest=source, tag=data.src_tag, data=pickle.dumps(model.get_weights()))
-            await comm.send(dest=source, tag=data.src_tag, data=pickle.dumps(stop))
+                await comm.send(dest=source, tag=message.tag, data=pickle.dumps(weight_diffs))
+                await comm.send(dest=source, tag=message.tag, data=pickle.dumps(stop))
 
             if stop:
                 exited_workers +=1
@@ -176,11 +176,11 @@ async def run(
             results["times"]["train"].append(time.time() - train_time)
             await comm.send(data=pickle.dumps(model.get_weights()), dest=0, tag=global_epoch)
 
-            data = comm.recv(source=0, tag=global_epoch)
+            data = await comm.recv(src=0, tag=global_epoch)
             for src, message in data.items():
                 weight_diffs = pickle.loads(message.data)
 
-            data = comm.recv(source=0, tag=global_epoch)
+            data = await comm.recv(src=0, tag=global_epoch)
             for src, message in data.items():
                 stop = pickle.loads(message.data)
 
