@@ -36,6 +36,7 @@ For the dataset structure:
 
 First, create a virtual environment and install the requirements:
 ```
+sudo apt -y install openmpi-bin libopenmpi-dev libblas-dev
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
