@@ -37,8 +37,9 @@ async def run(
 
     stop = False
     dataset = dataset_util.name
-    patience_buffer = [0]*patience
     tf.keras.utils.set_random_seed(dataset_util.seed)
+    patience_buffer = [-1]*patience
+
 
     comm = await ZCommPy.new(rank, n_workers, locator)
     comm.start()
@@ -124,7 +125,6 @@ async def run(
 
         for epoch in range(global_epochs*(n_workers)):
             if epoch % n_workers == 0:
-
                 logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (epoch//n_workers+1, time.time() - start))
 
             data = await comm.recv(src=-2, tag=epoch//n_workers)
@@ -137,8 +137,13 @@ async def run(
                 local_weights = [local_weights[idx] + weight
                                 for idx, weight in enumerate(weight_diffs)]
 
+<<<<<<< HEAD
                 await comm.send(dest=source, tag=epoch//n_workers, data=pickle.dumps(model.get_weights()))
                 await comm.send(dest=source, tag=epoch//n_workers, data=pickle.dumps(stop))
+=======
+                await comm.send(dest=source, tag=message.tag, data=pickle.dumps(weight_diffs))
+                await comm.send(dest=source, tag=message.tag, data=pickle.dumps(stop))
+>>>>>>> 0ae61d015461553b3099fe79d61f66214b380fe6
 
             if stop:
                 exited_workers +=1

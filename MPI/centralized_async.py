@@ -29,7 +29,7 @@ def run(
     status = MPI.Status()
     stop = False
     dataset = dataset_util.name
-    patience_buffer = [0]*patience
+    patience_buffer = [-1]*patience
 
     if rank == 0:
         print("Running centralized async")

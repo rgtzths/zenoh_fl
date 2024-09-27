@@ -28,7 +28,7 @@ def run(
     stop = False
 
     dataset = dataset_util.name
-    patience_buffer = [0]*patience
+    patience_buffer = [-1]*patience
 
     comm = await ZCommPy.new(rank, n_workers, locator)
     comm.start()
