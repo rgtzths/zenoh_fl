@@ -8,14 +8,14 @@ from Util import Util
 
 class Slicing5G(Util):
 
-    def __init__(self):
-        super().__init__("Slicing5G")
+    def __init__(self, seed):
+        super().__init__("Slicing5G", seed)
 
 
 
     def data_processing(self):
         dataset = f"datasets/{self.name}/data/5G_Dataset_Network_Slicing_CRAWDAD_Shared.xlsx"
-        output = f"datasets/{self.name}/data"
+        output = f"datasets/{self.name}/data/{self.seed}"
         # create the output folder if it does not exist
         Path(output).mkdir(parents=True, exist_ok=True)
 
@@ -36,13 +36,14 @@ class Slicing5G(Util):
         X = df.drop('Slice Type (Output)', axis=1)
         y = df['Slice Type (Output)']
         n_samples=X.shape[0]
-        x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=True)
-        x_train, x_val, y_train, y_val = train_test_split(x_train, y_train, test_size=0.2, random_state=42, shuffle=True)
+        x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=self.seed, shuffle=True)
+        x_train, x_val, y_train, y_val = train_test_split(x_train, y_train, test_size=0.2, random_state=self.seed, shuffle=True)
         
         print(f"\nTotal samples {n_samples}")
         print(f"Shape of the train data: {x_train.shape}")
         print(f"Shape of the validation data: {x_val.shape}")
         print(f"Shape of the test data: {x_test.shape}\n")
+        
         # Save the data
         x_train.to_csv(f"{output}/X_train.csv", index=False)
         x_val.to_csv(f"{output}/X_val.csv", index=False)
@@ -79,15 +80,13 @@ class Slicing5G(Util):
 
 
     def create_model(self):
-        # Optimizer: Adam
-        # Learning rate: 0.00001
         return tf.keras.models.Sequential([
-            # flatten layer
-            tf.keras.layers.Flatten(input_shape=(8,)),
-            # hidden layers
-            tf.keras.layers.Dense(32, activation='relu'),
-            tf.keras.layers.Dense(32, activation='relu'),
-            tf.keras.layers.Dropout(0.1),
-            # output layer
-            tf.keras.layers.Dense(3, activation="softmax")
-        ])
+                # flatten layer
+                tf.keras.layers.Input(shape=(8,)),
+                # hidden layers
+                tf.keras.layers.Dense(8, activation='relu'),
+                tf.keras.layers.Dense(4, activation='relu'),
+                tf.keras.layers.Dense(3, activation='tanh'),
+                # output layer
+                tf.keras.layers.Dense(3, activation="softmax")
+            ])

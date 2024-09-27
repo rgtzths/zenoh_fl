@@ -15,12 +15,9 @@ import tensorflow as tf
 from zcomm import ZCommPy
 import pickle
 
-#from ZENOH.zcomm import ZComm, ALL_SRC, ANY_SRC
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)
-
-tf.keras.utils.set_random_seed(42)
 
 async def run(
     dataset_util,
@@ -41,8 +38,15 @@ async def run(
     stop = False
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
+    tf.keras.utils.set_random_seed(dataset_util.seed)
 
-    output = f"{output}/{dataset}/zenoh/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}_{batch_size}"
+    if rank == 0:
+        print("Running decentralized sync")
+        print(f"Dataset: {dataset}")
+        print(f"Epochs: {epochs}")
+        print(f"Batch size: {batch_size}")
+
+    output = f"{output}/{dataset}/{dataset_util.seed}/zenoh/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}_{batch_size}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -57,7 +61,6 @@ async def run(
 
     comm = await ZCommPy.new(rank, n_workers, locator)
     comm.start()
-    #comm = ZComm(rank, n_workers)
 
     logging.info(f'[RANK: {rank}] Waiting nodes...')
     await comm.wait()

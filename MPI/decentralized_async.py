@@ -8,7 +8,7 @@ from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
 import pickle
 import sys
 
-tf.keras.utils.set_random_seed(42)
+
 
 def run(
     dataset_util, 
@@ -32,7 +32,7 @@ def run(
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
     model_weights = None
-
+    tf.keras.utils.set_random_seed(dataset_util.seed)
 
     if rank == 0:
         print("Running decentralized async")
@@ -43,7 +43,7 @@ def run(
         print(f"Batch size: {batch_size}")
         print(f"Alpha: {alpha}")
 
-    output = f"{output}/{dataset}/mpi/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}_{batch_size}"
+    output = f"{output}/{dataset}/{dataset_util.seed}/mpi/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}_{batch_size}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)

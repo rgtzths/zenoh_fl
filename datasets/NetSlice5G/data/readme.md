@@ -1,0 +1,1 @@
+https://www.kaggle.com/datasets/amohankumar/network-slicing-in-5g

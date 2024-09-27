@@ -18,9 +18,6 @@ from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)
 
-tf.keras.utils.set_random_seed(42)
-
-
 async def run(
     dataset_util, 
     optimizer,
@@ -41,8 +38,22 @@ async def run(
     stop = False
     dataset = dataset_util.name
     patience_buffer = [0]*patience
+    tf.keras.utils.set_random_seed(dataset_util.seed)
 
-    output = f"{output}/{dataset}/zenoh/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}_{batch_size}"
+    comm = await ZCommPy.new(rank, n_workers, locator)
+    comm.start()
+
+    logging.info(f'[RANK: {rank}] Waiting nodes...')
+    await comm.wait()
+    logging.info(f'[RANK: {rank}] Nodes up!')
+
+    if rank == 0:
+        print("Running decentralized async")
+        print(f"Dataset: {dataset}")
+        print(f"Epochs: {epochs}")
+        print(f"Batch size: {batch_size}")
+
+    output = f"{output}/{dataset}/{dataset_util.seed}/zenoh/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}_{batch_size}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
@@ -56,13 +67,6 @@ async def run(
 
     model_weights = None
 
-    comm = await ZCommPy.new(rank, n_workers, locator)
-    comm.start()
-    #comm = ZComm(rank, n_workers)
-
-    logging.info(f'[RANK: {rank}] Waiting nodes...')
-    await comm.wait()
-    logging.info(f'[RANK: {rank}] Nodes up!')
 
     '''
     Initial configuration, the parameter server receives the amount of 
@@ -81,9 +85,10 @@ async def run(
 
         #Get the amount of training examples of each worker and divides it by the total
         #of examples to create a weighted average of the model weights
-        data = await comm.recv(src=-2, tag=-10)
-        for source, message in data.items():
-            node_weights[source-1] = pickle.loads(message.data)
+        for worker in range(1, n_workers+1):
+            data = await comm.recv(src=-2, tag=-10)
+            for source, message in data.items():
+                node_weights[source-1] = pickle.loads(message.data)
         
         biggest_n_examples = max(node_weights)
 
@@ -122,7 +127,7 @@ async def run(
 
                 logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (epoch//n_workers+1, time.time() - start))
 
-            data = await comm.recv(src=-2, tag=-2)
+            data = await comm.recv(src=-2, tag=epoch//n_workers)
 
             for source, message in data.items():
                 weights = pickle.loads(message.data)
@@ -132,8 +137,8 @@ async def run(
                 local_weights = [local_weights[idx] + weight
                                 for idx, weight in enumerate(weight_diffs)]
 
-            await comm.send(dest=source, tag=data.src_tag, data=pickle.dumps(model.get_weights()))
-            await comm.send(dest=source, tag=data.src_tag, data=pickle.dumps(stop))
+                await comm.send(dest=source, tag=epoch//n_workers, data=pickle.dumps(model.get_weights()))
+                await comm.send(dest=source, tag=epoch//n_workers, data=pickle.dumps(stop))
 
             if stop:
                 exited_workers +=1
@@ -176,11 +181,11 @@ async def run(
             results["times"]["train"].append(time.time() - train_time)
             await comm.send(data=pickle.dumps(model.get_weights()), dest=0, tag=global_epoch)
 
-            data = comm.recv(source=0, tag=global_epoch)
+            data = await comm.recv(src=0, tag=global_epoch)
             for src, message in data.items():
                 weight_diffs = pickle.loads(message.data)
 
-            data = comm.recv(source=0, tag=global_epoch)
+            data = await comm.recv(src=0, tag=global_epoch)
             for src, message in data.items():
                 stop = pickle.loads(message.data)
 

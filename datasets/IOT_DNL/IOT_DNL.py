@@ -8,14 +8,14 @@ from Util import Util
 
 class IOT_DNL(Util):
 
-    def __init__(self):
-        super().__init__("IOT_DNL")
+    def __init__(self, seed):
+        super().__init__("IOT_DNL", seed)
 
 
 
     def data_processing(self):
         dataset = f"datasets/{self.name}/data/Preprocessed_data.csv"
-        output = f"datasets/{self.name}/data"
+        output = f"datasets/{self.name}/data/{self.seed}/"
         Path(output).mkdir(parents=True, exist_ok=True)
 
         data = pd.read_csv(dataset)
@@ -26,11 +26,11 @@ class IOT_DNL(Util):
         y = data['normality']
         n_samples=X.shape[0]
 
-        x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=True)
+        x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=self.seed, shuffle=True)
         scaler = StandardScaler()
         x_train = pd.DataFrame(scaler.fit_transform(x_train), columns=x_train.columns)
         x_test = pd.DataFrame(scaler.transform(x_test), columns=x_test.columns)
-        x_train, x_val, y_train, y_val = train_test_split(x_train, y_train, test_size=0.2, random_state=42, shuffle=True)
+        x_train, x_val, y_train, y_val = train_test_split(x_train, y_train, test_size=0.2, random_state=self.seed, shuffle=True)
 
         print(f"\nTotal samples {n_samples}")
         print(f"Shape of the train data: {x_train.shape}")
@@ -73,11 +73,10 @@ class IOT_DNL(Util):
 
 
     def create_model(self):
-        # Optimizer: Adam
-        # Learning rate: 0.000005
+        # https://www.taylorfrancis.com/chapters/edit/10.1201/9781003032175-11/deep-neural-network%E2%80%93based-security-model-iot-device-network-dukka-karun-kumar-reddy-janmenjoy-nayak-bighnaraj-naik-sai-pratyusha
         return tf.keras.models.Sequential([
             # flatten layer
-            tf.keras.layers.Flatten(input_shape=(11,)),
+            tf.keras.layers.Input(shape=(11,)),
             # hidden layers
             tf.keras.layers.Dense(64, activation='relu'),
             tf.keras.layers.Dropout(0.1),

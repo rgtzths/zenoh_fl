@@ -8,7 +8,6 @@ from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
 import pickle
 import sys
 
-tf.keras.utils.set_random_seed(42)
 
 def run(
     dataset_util,
@@ -29,6 +28,8 @@ def run(
     status = MPI.Status()
     stop = False
     model_weights = None
+    tf.keras.utils.set_random_seed(dataset_util.seed)
+
 
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
@@ -41,7 +42,7 @@ def run(
         print(f"Local epochs: {local_epochs}")
         print(f"Batch size: {batch_size}")
 
-    output = f"{output}/{dataset}/mpi/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}_{batch_size}"
+    output = f"{output}/{dataset}/{dataset_util.seed}/mpi/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}_{batch_size}"
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
     dataset = pathlib.Path(dataset)
