@@ -1,13 +1,18 @@
 import json
 import pathlib
 import time
+import pickle
+
 import numpy as np
 import tensorflow as tf
-from mpi4py import MPI
+import logging
+
+from zcomm import ZCommPy
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
 
+logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)
 
-def run(
+async def run(
     dataset_util,
     optimizer,
     early_stop,
@@ -16,17 +21,16 @@ def run(
     epochs,
     patience,
     min_delta,
-    output
+    n_workers,
+    rank,
+    output,
+    locator
     ):
 
     tf.keras.utils.set_random_seed(dataset_util.seed)
     
     best_weights = None
     best_mcc = -1
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-    n_workers = comm.Get_size()-1
-    status = MPI.Status()
     stop = False
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
@@ -72,7 +76,7 @@ def run(
 
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)
 
-        train_dataset = list(tf.data.Dapoch//n_workerstaset.from_tensor_slices((X_train, y_train)).batch(batch_size))
+        train_dataset = list(tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size))
 
         await comm.send(dest=0, tag=-10, data=pickle.dumps(len(train_dataset)))
 
@@ -128,7 +132,7 @@ def run(
                 patience_buffer = patience_buffer[1:]
                 patience_buffer.append(val_mcc)
 
-                p_stop = Truepoch//n_workers
+                p_stop = True
                 for value in patience_buffer[1:]:
                     if abs(patience_buffer[0] - value) > min_delta:
                         p_stop = False 

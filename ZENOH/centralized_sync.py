@@ -1,12 +1,18 @@
 import json
 import pathlib
 import time
+import logging
+import pickle
+
 import numpy as np
 import tensorflow as tf
-from mpi4py import MPI
+from zcomm import ZCommPy
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
 
-def run(
+
+logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)
+
+async def run(
     dataset_util,
     optimizer,
     early_stop,
@@ -15,16 +21,15 @@ def run(
     epochs,
     patience,
     min_delta,
-    output
+    n_workers,
+    rank,
+    output,
+    locator
 ):
     tf.keras.utils.set_random_seed(dataset_util.seed)
 
     best_weights = None
     best_mcc = -1
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-    n_workers = comm.Get_size()-1
-    status = MPI.Status()
     stop = False
 
     dataset = dataset_util.name
@@ -75,8 +80,7 @@ def run(
 
         total_n_batches = len(train_dataset)
 
-
-    weights = comm.bcast(model.get_weights(), root=0)
+    weights = pickle.loads( (await comm.bcast(data=pickle.dumps(model.get_weights()), root=0, tag=-10)).data)
 
     if rank != 0:
         model.set_weights(weights)

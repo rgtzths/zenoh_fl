@@ -6,6 +6,8 @@ from MPI.centralized_async import run as mpi_centralized_async
 from MPI.centralized_sync import run as mpi_centralized_sync
 from ZENOH.decentralized_async import run as zenoh_decentralized_async
 from ZENOH.decentralized_sync import run as zenoh_decentralized_sync
+from ZENOH.centralized_async import run as zenoh_centralized_async
+from ZENOH.centralized_sync import run as zenoh_centralized_sync
 import asyncio
 
 from config import DATASETS, OPTIMIZERS
@@ -50,3 +52,7 @@ else:
             asyncio.run(zenoh_decentralized_async(DATASETS[args.d](args.seed), OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.a,args.p, args.md,  args.nw, args.wid, args.f, "tcp/127.0.0.1:7447"))
         case 2:
             asyncio.run(zenoh_decentralized_sync(DATASETS[args.d](args.seed), OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.le, args.p, args.md, args.nw, args.wid, args.f, "tcp/127.0.0.1:7447"))
+        case 3:
+            asyncio.run(zenoh_centralized_async(DATASETS[args.d](args.seed), OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.p, args.md, args.nw, args.wid, args.f, "tcp/127.0.0.1:7447"))
+        case 4:
+            asyncio.run(zenoh_centralized_sync(DATASETS[args.d](args.seed), OPTIMIZERS[args.o], args.s, args.lr, args.b, args.ge, args.p, args.md, args.nw, args.wid, args.f, "tcp/127.0.0.1:7447"))

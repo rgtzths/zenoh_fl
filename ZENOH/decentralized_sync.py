@@ -43,7 +43,7 @@ async def run(
     if rank == 0:
         print("Running decentralized sync")
         print(f"Dataset: {dataset}")
-        print(f"Epochs: {epochs}")
+        print(f"Epochs: {global_epochs}")
         print(f"Batch size: {batch_size}")
 
     output = f"{output}/{dataset}/{dataset_util.seed}/zenoh/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}_{batch_size}"

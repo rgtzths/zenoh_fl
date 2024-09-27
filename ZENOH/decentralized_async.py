@@ -51,7 +51,7 @@ async def run(
     if rank == 0:
         print("Running decentralized async")
         print(f"Dataset: {dataset}")
-        print(f"Epochs: {epochs}")
+        print(f"Epochs: {global_epochs}")
         print(f"Batch size: {batch_size}")
 
     output = f"{output}/{dataset}/{dataset_util.seed}/zenoh/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}_{batch_size}"
@@ -137,13 +137,9 @@ async def run(
                 local_weights = [local_weights[idx] + weight
                                 for idx, weight in enumerate(weight_diffs)]
 
-<<<<<<< HEAD
-                await comm.send(dest=source, tag=epoch//n_workers, data=pickle.dumps(model.get_weights()))
-                await comm.send(dest=source, tag=epoch//n_workers, data=pickle.dumps(stop))
-=======
                 await comm.send(dest=source, tag=message.tag, data=pickle.dumps(weight_diffs))
                 await comm.send(dest=source, tag=message.tag, data=pickle.dumps(stop))
->>>>>>> 0ae61d015461553b3099fe79d61f66214b380fe6
+
 
             if stop:
                 exited_workers +=1
