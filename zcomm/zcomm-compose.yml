@@ -1,0 +1,104 @@
+services:
+  master:
+    hostname: master
+    build:
+      context: .
+      dockerfile: Dockerfile.zcomm
+    # depends_on:
+    #   - worker1
+    #   - worker2
+    #   - worker3
+    #   - worker4
+    image: zenohfl
+    ports: 
+      - "7447"
+    environment:
+       WORKERS: 8
+       RANK: 0
+    command: ["/root/zcomm/run-zcomm.sh"]
+
+  worker1: 
+    image: zenohfl
+    hostname: worker1
+    ports: 
+      - "7447"
+    environment:
+       WORKERS: 8
+       RANK: 1
+    command: ["/root/zcomm/run-zcomm.sh"]
+
+  worker2: 
+    image: zenohfl
+    hostname: worker2
+    ports: 
+      - "7447"
+    environment:
+       WORKERS: 8
+       RANK: 2
+    command: ["/root/zcomm/run-zcomm.sh"]
+
+  worker3: 
+    image: zenohfl
+    hostname: worker3
+    ports: 
+      - "7447"
+    environment:
+       WORKERS: 8
+       RANK: 3
+    command: ["/root/zcomm/run-zcomm.sh"]
+
+  worker4: 
+    image: zenohfl
+    hostname: worker4
+    ports: 
+      - "7447"
+    environment:
+       WORKERS: 8
+       RANK: 4
+    command: ["/root/zcomm/run-zcomm.sh"]
+
+
+  worker5: 
+    image: zenohfl
+    hostname: worker5
+    ports: 
+      - "7447"
+    environment:
+       WORKERS: 8
+       RANK: 5
+    command: ["/root/zcomm/run-zcomm.sh"]
+
+
+  worker6: 
+    image: zenohfl
+    hostname: worker6
+    ports: 
+      - "7447"
+    environment:
+       WORKERS: 8
+       RANK: 6
+    command: ["/root/zcomm/run-zcomm.sh"]
+
+
+
+  worker7: 
+    image: zenohfl
+    hostname: worker7
+    ports: 
+      - "7447"
+    environment:
+       WORKERS: 8
+       RANK: 7
+    command: ["/root/zcomm/run-zcomm.sh"]
+
+
+
+  worker8: 
+    image: zenohfl
+    hostname: worker8
+    ports: 
+      - "7447"
+    environment:
+       WORKERS: 8
+       RANK: 8
+    command: ["/root/zcomm/run-zcomm.sh"]
