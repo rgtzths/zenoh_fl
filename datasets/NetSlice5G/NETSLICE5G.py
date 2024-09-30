@@ -30,7 +30,7 @@ class NetSlice5G(Util):
 
         print(f"\nTotal samples {df_train.values.shape[0]}")
         print(f"Shape of the train data: {x_train.shape}")
-        print(f"Shape of the validation data: {x_val.shape}")
+        print(f"Shape of the validation data: {x_cv.shape}")
         print(f"Shape of the test data: {x_test.shape}\n")
         
         np.savetxt(f"{output}/X_train.csv", x_train, delimiter=",", fmt="%d")
