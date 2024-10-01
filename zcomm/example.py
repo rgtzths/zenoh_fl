@@ -8,10 +8,16 @@ async def asyncio_main(rank, workers, locator):
     zcomm = await ZCommPy.new(rank,workers, locator)
     zcomm.start()
 
+    logging.info(f'My ZID is: {zcomm.zid()}')
+
     logging.info(f'Wait for all nodes [{workers}]...')
     await zcomm.wait()
+    discovered_nodes = await zcomm.discovered()
 
-    logging.info("All nodes discovered")
+    logging.info(f"Disovered nodes: {discovered_nodes}")
+
+    if len(discovered_nodes) == workers:
+        logging.info("All nodes discovered") 
 
     # send to all nodes
 
