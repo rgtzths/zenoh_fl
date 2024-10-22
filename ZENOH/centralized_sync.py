@@ -1,12 +1,18 @@
 import json
 import pathlib
 import time
+import logging
+import pickle
+
 import numpy as np
 import tensorflow as tf
-from mpi4py import MPI
+from zcomm import ZCommPy
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
 
-def run(
+
+logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)
+
+async def run(
     dataset_util,
     optimizer,
     early_stop,
@@ -15,16 +21,15 @@ def run(
     epochs,
     patience,
     min_delta,
-    output
+    n_workers,
+    rank,
+    output,
+    locator
 ):
     tf.keras.utils.set_random_seed(dataset_util.seed)
 
     best_weights = None
     best_mcc = -1
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-    n_workers = comm.Get_size()-1
-    status = MPI.Status()
     stop = False
 
     dataset = dataset_util.name
@@ -52,8 +57,9 @@ def run(
     optimizer = optimizer(learning_rate=learning_rate)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
 
+    start = time.time()
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : []}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "messages_size" : {"sent" : [], "received" : []}, "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [1/n_workers]*n_workers
 
         X_cv, y_cv = dataset_util.load_validation_data()
@@ -75,12 +81,12 @@ def run(
 
         total_n_batches = len(train_dataset)
 
-
-    weights = comm.bcast(model.get_weights(), root=0)
+    weights = pickle.loads( (await comm.bcast(data=pickle.dumps(model.get_weights()), root=0, tag=-10)).data)
 
     if rank != 0:
         model.set_weights(weights)
 
+    epoch_start = time.time()
     for batch in range(total_n_batches*epochs):
         weights = []
         if rank == 0:
@@ -121,32 +127,36 @@ def run(
         if stop:
             break
 
-        if (batch+1) % total_n_batches == 0:
+        if (batch+1) % total_n_batches == 0 and rank == 0:
+            print(f"\n End of batch {batch+1} -> epoch {(batch+1) // total_n_batches}")
+            predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
+            val_f1 = f1_score(y_cv, predictions, average="weighted")
+            val_mcc = matthews_corrcoef(y_cv, predictions)
+            val_acc = accuracy_score(y_cv, predictions)
 
-            if rank == 0:
-                print(f"\n End of batch {batch+1} -> epoch {(batch+1) // total_n_batches}")
-                predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
-                val_f1 = f1_score(y_cv, predictions, average="weighted")
-                val_mcc = matthews_corrcoef(y_cv, predictions)
-                val_acc = accuracy_score(y_cv, predictions)
+            results["acc"].append(val_acc)
+            results["f1"].append(val_f1)
+            results["mcc"].append(val_mcc)
+            results["times"]["global_times"].append(time.time() - start)
+            results["times"]["epochs"].append(time.time() - epoch_start)
 
-                results["acc"].append(val_acc)
-                results["f1"].append(val_f1)
-                results["mcc"].append(val_mcc)
-                print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
-                patience_buffer = patience_buffer[1:]
-                patience_buffer.append(val_mcc)
+            print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
+            patience_buffer = patience_buffer[1:]
+            patience_buffer.append(val_mcc)
 
-                p_stop = True
-                for value in patience_buffer[1:]:
-                    if abs(patience_buffer[0] - value) > min_delta:
-                        p_stop = False 
-    
-                if val_mcc >= early_stop or p_stop:
-                    stop = True
+            p_stop = True
+            for value in patience_buffer[1:]:
+                if abs(patience_buffer[0] - value) > min_delta:
+                    p_stop = False 
 
-                if val_mcc > best_mcc:
-                    best_weights = model.get_weights()
+            if val_mcc >= early_stop or p_stop:
+                stop = True
+
+            if val_mcc > best_mcc:
+                best_weights = model.get_weights()
+
+            epoch_start = time.time()
+
 
     if rank==0:
         history = json.dumps(results)

@@ -51,7 +51,7 @@ async def run(
     if rank == 0:
         print("Running decentralized async")
         print(f"Dataset: {dataset}")
-        print(f"Epochs: {epochs}")
+        print(f"Epochs: {global_epochs}")
         print(f"Batch size: {batch_size}")
 
     output = f"{output}/{dataset}/{dataset_util.seed}/zenoh/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}_{batch_size}"
@@ -79,21 +79,9 @@ async def run(
     if rank == 0:
         results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
 
-        node_weights = [0]*(n_workers)
         X_cv, y_cv = dataset_util.load_validation_data()
 
         val_dataset = tf.data.Dataset.from_tensor_slices(X_cv).batch(batch_size)
-
-        #Get the amount of training examples of each worker and divides it by the total
-        #of examples to create a weighted average of the model weights
-        for worker in range(1, n_workers+1):
-            data = await comm.recv(src=-2, tag=-10)
-            for source, message in data.items():
-                node_weights[source-1] = pickle.loads(message.data)
-        
-        biggest_n_examples = max(node_weights)
-
-        node_weights = [n_examples/biggest_n_examples for n_examples in node_weights]
 
         model_weights = model.get_weights()
     else:
@@ -102,8 +90,6 @@ async def run(
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
-
-        await comm.send(dest=0, tag=-10, data=pickle.dumps(len(train_dataset)))
 
     '''
     Parameter server shares its values so every worker starts from the same point.
@@ -121,9 +107,9 @@ async def run(
     if rank == 0:
         local_weights = model.get_weights()
         exited_workers = 0
-        epoch_start = time.time()
-
         for epoch in range(global_epochs*(n_workers)):
+            epoch_start = time.time()
+
             if epoch % n_workers == 0:
                 logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (epoch//n_workers+1, time.time() - start))
 
@@ -131,19 +117,15 @@ async def run(
 
             for source, message in data.items():
                 weights = pickle.loads(message.data)
-                weight_diffs = [ (weight - local_weights[idx])*alpha*node_weights[source-1]
+                weight_diffs = [ (weight - local_weights[idx])*alpha
                                 for idx, weight in enumerate(weights)]
                 
                 local_weights = [local_weights[idx] + weight
                                 for idx, weight in enumerate(weight_diffs)]
 
-<<<<<<< HEAD
-                await comm.send(dest=source, tag=epoch//n_workers, data=pickle.dumps(model.get_weights()))
-                await comm.send(dest=source, tag=epoch//n_workers, data=pickle.dumps(stop))
-=======
                 await comm.send(dest=source, tag=message.tag, data=pickle.dumps(weight_diffs))
                 await comm.send(dest=source, tag=message.tag, data=pickle.dumps(stop))
->>>>>>> 0ae61d015461553b3099fe79d61f66214b380fe6
+
 
             if stop:
                 exited_workers +=1
@@ -152,7 +134,6 @@ async def run(
                 break
 
             if epoch % n_workers == n_workers-1 and not stop:
-                results["times"]["epochs"].append(time.time() - epoch_start)
                 model.set_weights(local_weights)
                 predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
                 val_f1 = f1_score(y_cv, predictions, average="macro")
@@ -163,6 +144,7 @@ async def run(
                 results["f1"].append(val_f1)
                 results["mcc"].append(val_mcc)
                 results["times"]["global_times"].append(time.time() - start)
+                results["times"]["epochs"].append(time.time() - epoch_start)
                 patience_buffer = patience_buffer[1:]
                 patience_buffer.append(val_mcc)
 

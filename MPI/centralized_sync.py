@@ -45,8 +45,10 @@ def run(
     optimizer = optimizer(learning_rate=learning_rate)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
 
+    start = time.time()
+
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : []}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "messages_size" : {"sent" : [], "received" : []}, "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [1/n_workers]*n_workers
 
         X_cv, y_cv = dataset_util.load_validation_data()
@@ -74,6 +76,7 @@ def run(
     if rank != 0:
         model.set_weights(weights)
 
+    epoch_start = time.time()
     for batch in range(total_n_batches*epochs):
         weights = []
         if rank == 0:
@@ -113,33 +116,35 @@ def run(
         if stop:
             break
 
-        if (batch+1) % total_n_batches == 0:
+        if rank == 0 and (batch+1) % total_n_batches == 0:
+            print(f"\n End of batch {batch+1} -> epoch {(batch+1) // total_n_batches}")
+            predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
+            val_f1 = f1_score(y_cv, predictions, average="weighted")
+            val_mcc = matthews_corrcoef(y_cv, predictions)
+            val_acc = accuracy_score(y_cv, predictions)
 
-            if rank == 0:
-                print(f"\n End of batch {batch+1} -> epoch {(batch+1) // total_n_batches}")
-                predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
-                val_f1 = f1_score(y_cv, predictions, average="weighted")
-                val_mcc = matthews_corrcoef(y_cv, predictions)
-                val_acc = accuracy_score(y_cv, predictions)
+            results["acc"].append(val_acc)
+            results["f1"].append(val_f1)
+            results["mcc"].append(val_mcc)
+            results["times"]["global_times"].append(time.time() - start)
+            results["times"]["epochs"].append(time.time() - epoch_start)
 
-                results["acc"].append(val_acc)
-                results["f1"].append(val_f1)
-                results["mcc"].append(val_mcc)
-                print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
-                patience_buffer = patience_buffer[1:]
-                patience_buffer.append(val_mcc)
+            print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
+            patience_buffer = patience_buffer[1:]
+            patience_buffer.append(val_mcc)
 
-                p_stop = True
-                for value in patience_buffer[1:]:
-                    if abs(patience_buffer[0] - value) > min_delta:
-                        p_stop = False 
-    
-                if val_mcc >= early_stop or p_stop:
-                    stop = True
+            p_stop = True
+            for value in patience_buffer[1:]:
+                if abs(patience_buffer[0] - value) > min_delta:
+                    p_stop = False 
 
-                if val_mcc > best_mcc:
-                    best_weights = model.get_weights()
+            if val_mcc >= early_stop or p_stop:
+                stop = True
 
+            if val_mcc > best_mcc:
+                best_weights = model.get_weights()
+            
+            epoch_start = time.time()
     if rank==0:
         history = json.dumps(results)
         model.set_weights(best_weights)

@@ -43,7 +43,7 @@ async def run(
     if rank == 0:
         print("Running decentralized sync")
         print(f"Dataset: {dataset}")
-        print(f"Epochs: {epochs}")
+        print(f"Epochs: {global_epochs}")
         print(f"Batch size: {batch_size}")
 
     output = f"{output}/{dataset}/{dataset_util.seed}/zenoh/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}_{batch_size}"
@@ -69,21 +69,10 @@ async def run(
     start = time.time()
     if rank == 0:
         results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
-        node_weights = [0]*(n_workers)
+        node_weights = [1/n_workers]*n_workers
         X_cv, y_cv = dataset_util.load_validation_data()
 
         val_dataset = tf.data.Dataset.from_tensor_slices(X_cv).batch(batch_size)
-
-        #Get the amount of training examples of each worker and divides it by the total
-        #of examples to create a weighted average of the model weights
-        for worker in range(1, n_workers+1):
-            data = await comm.recv(src=-2, tag=-10)
-            for src, message in data.items():
-                node_weights[src-1] = pickle.loads(message.data)
-            
-            total_size = sum(node_weights)
-
-        node_weights = [weight/total_size for weight in node_weights]
 
         model_weights = model.get_weights()
 
@@ -92,8 +81,6 @@ async def run(
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)        
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
-        
-        await comm.send(dest=0, tag=-10, data=pickle.dumps(len(train_dataset)))
 
     model_weights = pickle.loads( (await comm.bcast(data=pickle.dumps(model_weights), root=0, tag=-10)).data)
 
@@ -135,7 +122,6 @@ async def run(
                 break
         else:
             
-            results["times"]["epochs"].append(time.time() - start)
 
             predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
             val_f1 = f1_score(y_cv, predictions, average="macro")
@@ -146,6 +132,8 @@ async def run(
             results["f1"].append(val_f1)
             results["mcc"].append(val_mcc)
             results["times"]["global_times"].append(time.time() - start)
+            results["times"]["epochs"].append(time.time() - epoch_start)
+
 
             patience_buffer = patience_buffer[1:]
             patience_buffer.append(val_mcc)

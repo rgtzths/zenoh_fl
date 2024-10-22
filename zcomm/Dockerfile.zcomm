@@ -1,0 +1,16 @@
+FROM rust:1.81.0
+# ENV USER mpiuser
+
+ENV HOME=/root
+
+RUN apt update && apt -y install python3-dev python3-venv python3-pip
+
+WORKDIR ${HOME}
+
+COPY . ./zcomm
+
+
+RUN cd zcomm && pip3 install -r requirements-dev.txt --break-system-packages && maturin build --release
+RUN pip3 install zcomm/target/wheels/*.whl --break-system-packages
+
+CMD [ "bash" ]

@@ -54,8 +54,6 @@ def run(
         loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
-    sent_size = 0
-    received_size = 0
 
     start = time.time()
 
@@ -67,23 +65,10 @@ def run(
     if rank == 0:
         results = {"acc" : [], "mcc" : [], "f1" : [], "messages_size" : {"sent" : [], "received" : []}, "times" : {"epochs" : [], "global_times" : []}}
 
-        node_weights = [0]*(n_workers)
-        
         X_cv, y_cv = dataset_util.load_validation_data()
 
         val_dataset = tf.data.Dataset.from_tensor_slices(X_cv).batch(batch_size)
 
-        #Get the amount of training examples of each worker and divides it by the total
-        #of examples to create a weighted average of the model weights
-        for _ in range(n_workers):
-            n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
-            node_weights[status.Get_source()-1] = n_examples
-            received_size += sys.getsizeof(pickle.dumps(n_examples))
-
-        
-        biggest_n_examples = max(node_weights)
-
-        node_weights = [n_examples/biggest_n_examples for n_examples in node_weights]
         model_weights = model.get_weights()
 
     else:
@@ -93,16 +78,12 @@ def run(
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
 
-        comm.send(len(train_dataset), dest=0, tag=1000)
-
     '''
     Parameter server shares its values so every worker starts from the same point.
     '''
     model_weights = comm.bcast(model_weights, root=0)
 
-    if rank == 0:
-        sent_size += sys.getsizeof(pickle.dumps(model_weights))*n_workers 
-    else:
+    if rank != 0:
         model.set_weights(model_weights)
 
     '''
@@ -113,9 +94,9 @@ def run(
     if rank == 0:
         local_weights = model.get_weights()
         exited_workers = 0
-        epoch_start = time.time()
-
         for epoch in range(global_epochs*(n_workers)):
+            epoch_start = time.time()
+
             if epoch % n_workers == 0:
 
                 print("\nStart of epoch %d, elapsed time %5.1fs" % (epoch//n_workers+1, time.time() - start))
@@ -123,23 +104,20 @@ def run(
             #This needs to be changed to the correct formula
             
             weights = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
-            received_size+=sys.getsizeof(pickle.dumps(weights))
 
             source = status.Get_source()
             tag = status.Get_tag()
 
             #Check how to combine here
-            weight_diffs = [ (weight - local_weights[idx])*alpha*node_weights[source-1]
+            weight_diffs = [ (weight - local_weights[idx])*alpha
                             for idx, weight in enumerate(weights)]
             
             local_weights = [local_weights[idx] + weight
                             for idx, weight in enumerate(weight_diffs)]
             
             comm.send(weight_diffs, dest=source, tag=tag)
-            sent_size += sys.getsizeof(pickle.dumps(weight_diffs)) 
 
             comm.send(stop, dest=source, tag=tag)
-            sent_size += sys.getsizeof(pickle.dumps(stop)) 
 
             if stop:
                 exited_workers +=1
@@ -147,7 +125,6 @@ def run(
                 break
 
             if epoch % n_workers == n_workers-1 and not stop:
-                results["times"]["epochs"].append(time.time() - epoch_start)
                 model.set_weights(local_weights)
                 predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
                 val_f1 = f1_score(y_cv, predictions, average="macro")
@@ -157,13 +134,13 @@ def run(
                 results["acc"].append(val_acc)
                 results["f1"].append(val_f1)
                 results["mcc"].append(val_mcc)
-                results["messages_size"]["sent"].append(sent_size)
-                results["messages_size"]["received"].append(received_size)
                 results["times"]["global_times"].append(time.time() - start)
+                results["times"]["epochs"].append(time.time() - epoch_start)
+
                 patience_buffer = patience_buffer[1:]
                 patience_buffer.append(val_mcc)
 
-                print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f - sent_messages  %6.3f - received_messages  %6.3f "  %(val_f1, val_mcc, val_acc, sent_size*0.000001, received_size*0.000001))
+                print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f"  %(val_f1, val_mcc, val_acc))
 
                 p_stop = True
                 for value in patience_buffer[1:]:
@@ -172,8 +149,6 @@ def run(
 
                 if val_mcc > early_stop or p_stop:
                     stop = True
-
-                epoch_start = time.time()
     else:
         for global_epoch in range(global_epochs):
             epoch_start = time.time()

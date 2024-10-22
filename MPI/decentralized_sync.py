@@ -53,28 +53,15 @@ def run(
         loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
-    sent_size = 0
-    received_size = 0
 
     start = time.time()
 
     if rank == 0:
         results = {"acc" : [], "mcc" : [], "f1" : [], "messages_size" : {"sent" : [], "received" : []}, "times" : {"epochs" : [], "global_times" : []}}
-        node_weights = [0]*(n_workers)
+        node_weights = [1/n_workers]*n_workers
         X_cv, y_cv = dataset_util.load_validation_data()
 
         val_dataset = tf.data.Dataset.from_tensor_slices(X_cv).batch(batch_size)
-
-        #Get the amount of training examples of each worker and divides it by the total
-        #of examples to create a weighted average of the model weights
-        for node in range(n_workers):
-            n_examples = comm.recv(source=MPI.ANY_SOURCE, tag=1000, status=status)
-            node_weights[status.Get_source()-1] = n_examples
-            received_size += sys.getsizeof(pickle.dumps(n_examples))
-
-        total_size = sum(node_weights)
-
-        node_weights = [weight/total_size for weight in node_weights]
 
         model_weights = model.get_weights()
 
@@ -85,13 +72,9 @@ def run(
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
 
-        comm.send(len(train_dataset), dest=0, tag=1000)
-
     model_weights = comm.bcast(model_weights, root=0)
 
-    if rank == 0:
-        sent_size += sys.getsizeof(pickle.dumps(model_weights))*n_workers 
-    else:
+    if rank != 0:
         model.set_weights(model_weights)
 
     for global_epoch in range(global_epochs):
@@ -103,7 +86,6 @@ def run(
 
             for _ in range(n_workers):
                 weights = comm.recv(source=MPI.ANY_SOURCE, tag=global_epoch, status=status)
-                received_size+=sys.getsizeof(pickle.dumps(weights))
 
                 source = status.Get_source()
 
@@ -111,7 +93,7 @@ def run(
                     avg_weights = [ weight * node_weights[source-1] for weight in weights]
                 else:
                     avg_weights = [ avg_weights[i] + weights[i] * node_weights[source-1] for i in range(len(weights))]
-            sent_size += sys.getsizeof(pickle.dumps(avg_weights))*n_workers        
+
         else:
             train_time = time.time()
             model.fit(train_dataset, epochs=local_epochs, verbose=0)
@@ -129,9 +111,6 @@ def run(
             if stop:
                 break
         else:
-            sent_size += sys.getsizeof(pickle.dumps(stop))*8
-
-            results["times"]["epochs"].append(time.time() - epoch_start)
 
             model.set_weights(avg_weights)
 
@@ -144,11 +123,10 @@ def run(
             results["f1"].append(val_f1)
             results["mcc"].append(val_mcc)
             results["times"]["global_times"].append(time.time() - start)
-            results["messages_size"]["sent"].append(sent_size)
-            results["messages_size"]["received"].append(received_size)
+            results["times"]["epochs"].append(time.time() - epoch_start)
             patience_buffer = patience_buffer[1:]
             patience_buffer.append(val_mcc)
-            print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f - sent_messages  %6.3f - received_messages  %6.3f "  %(val_f1, val_mcc, val_acc, sent_size*0.000001, received_size*0.000001))
+            print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f "  %(val_f1, val_mcc, val_acc))
             if stop:
                 break
             p_stop = True

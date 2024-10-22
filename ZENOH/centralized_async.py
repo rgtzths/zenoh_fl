@@ -1,13 +1,18 @@
 import json
 import pathlib
 import time
+import pickle
+
 import numpy as np
 import tensorflow as tf
-from mpi4py import MPI
+import logging
+
+from zcomm import ZCommPy
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
 
+logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)
 
-def run(
+async def run(
     dataset_util,
     optimizer,
     early_stop,
@@ -16,17 +21,16 @@ def run(
     epochs,
     patience,
     min_delta,
-    output
+    n_workers,
+    rank,
+    output,
+    locator
     ):
 
     tf.keras.utils.set_random_seed(dataset_util.seed)
     
     best_weights = None
     best_mcc = -1
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-    n_workers = comm.Get_size()-1
-    status = MPI.Status()
     stop = False
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
@@ -53,8 +57,10 @@ def run(
     optimizer = optimizer(learning_rate=learning_rate)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
 
+    start = time.time()
+
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : []}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "messages_size" : {"sent" : [], "received" : []}, "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [1/n_workers]*n_workers
 
         X_cv, y_cv = dataset_util.load_validation_data()
@@ -72,7 +78,7 @@ def run(
 
         X_train, y_train = dataset_util.load_worker_data(n_workers, rank)
 
-        train_dataset = list(tf.data.Dapoch//n_workerstaset.from_tensor_slices((X_train, y_train)).batch(batch_size))
+        train_dataset = list(tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size))
 
         await comm.send(dest=0, tag=-10, data=pickle.dumps(len(train_dataset)))
 
@@ -83,10 +89,9 @@ def run(
     if rank != 0:
         model.set_weights(weights)
 
-    epoch_start = time.time()
     if rank == 0:
-        exited_workers = 0
-        latest_tag = 0
+        exited_workers = 0        
+        epoch_start = time.time()
         for batch in range(total_n_batches*epochs):
 
             data = await comm.recv(src=-2, tag=-2)
@@ -94,12 +99,8 @@ def run(
             for source, message in data.items():
                 grads = pickle.loads(message.data)
                 tag = message.tag
-                if latest_tag < tag+1:
-                    latest_tag = tag+1
 
-                behind_penalty = (tag+1 / latest_tag)
-
-                grads = [grad*node_weights[source-1]*behind_penalty for grad in grads] 
+                grads = [grad*node_weights[source-1] for grad in grads] 
 
                 optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
@@ -123,12 +124,14 @@ def run(
 
                 results["acc"].append(val_acc)
                 results["f1"].append(val_f1)
-                results["mcc"].append(val_mcc)                
+                results["mcc"].append(val_mcc)
+                results["times"]["global_times"].append(time.time() - start)
+                results["times"]["epochs"].append(time.time() - epoch_start)                
                 print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
                 patience_buffer = patience_buffer[1:]
                 patience_buffer.append(val_mcc)
 
-                p_stop = Truepoch//n_workers
+                p_stop = True
                 for value in patience_buffer[1:]:
                     if abs(patience_buffer[0] - value) > min_delta:
                         p_stop = False 
@@ -138,6 +141,9 @@ def run(
 
                 if val_mcc > best_mcc:
                     best_weights = model.get_weights()
+                
+                epoch_start = time.time()
+
             
     else:
         for batch in range(total_n_batches*epochs):

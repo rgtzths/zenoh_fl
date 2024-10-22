@@ -42,6 +42,12 @@ pub struct ZCommData {
     pub data: Arc<Vec<u8>>,
 }
 
+#[derive(Encode, Decode, Debug, Clone)]
+pub struct DiscoveryInfo {
+    pub rank: i8,
+    pub zid: String,
+}
+
 #[derive(Clone)]
 pub struct ZComm {
     pub session: Arc<Session>,
@@ -54,6 +60,7 @@ pub struct ZComm {
     pub ke_live_queriable: String,
     pub live_queriable: Arc<Queryable<'static, Receiver<Query>>>,
     pub data_sub: Arc<Subscriber<'static, Receiver<Sample>>>,
+    pub discovered: Arc<RwLock<Vec<DiscoveryInfo>>>,
 }
 
 impl ZComm {
@@ -87,6 +94,7 @@ impl ZComm {
             ke_live_queriable,
             live_queriable: Arc::new(live_queriable),
             data_sub: Arc::new(data_sub),
+            discovered: Arc::new(RwLock::new(Vec::new())),
         })
     }
 
@@ -117,10 +125,20 @@ impl ZComm {
     pub fn start(&self) -> Result<(), Error> {
         let c_status_queriable = self.live_queriable.clone();
         let c_rank = self.rank;
+        let c_zid = self.get_zid().to_string();
         tokio::task::spawn(async move {
+            let discovery_info = DiscoveryInfo {
+                rank: c_rank,
+                zid: c_zid,
+            };
+
             while let Ok(q) = c_status_queriable.recv_async().await {
                 let ke = q.key_expr().clone();
-                let _ = q.reply(Ok(Sample::new(ke, c_rank))).res().await;
+                tracing::debug!("[Discovery] sending: {discovery_info:?}");
+                let _ = q
+                    .reply(Ok(Sample::new(ke, bitcode::encode(&discovery_info))))
+                    .res()
+                    .await;
             }
         });
 
@@ -276,14 +294,26 @@ impl ZComm {
     }
 
     #[tracing::instrument(skip(self))]
+    pub fn get_zid(&self) -> ZenohId {
+        self.session.zid()
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn discovered(&self) -> Vec<DiscoveryInfo> {
+        self.discovered.read().await.clone()
+    }
+
+    #[tracing::instrument(skip(self))]
     pub async fn wait(&self) -> Result<(), Error> {
         // this could be improved with Group Management, but information about who #
         // is in the group is not available yet
         // thus busy looping
         'outer: for i in 0..self.expected {
             if i == self.rank {
+                tracing::debug!("[Discovery] self-discover: {i}, skipping");
                 continue 'outer;
             }
+            tracing::debug!("looking for: {i}");
             let ke = format!("@mpi/{i}/status");
             let mut data: Vec<Vec<u8>> = vec![];
 
@@ -298,12 +328,19 @@ impl ZComm {
                     .collect::<Result<Vec<Vec<u8>>, _>>()
                     .unwrap_or_default();
 
-                if let Some(data) = data.first() {
-                    if let Some(b) = data.first() {
-                        if (*b as i8) == i {
-                            continue 'outer;
+                if let Some(inner_data) = data.first() {
+                    match bitcode::decode::<DiscoveryInfo>(inner_data) {
+                        Ok(discovery_info) => {
+                            tracing::debug!("[Discovery] found: {discovery_info:?}");
+                            self.discovered.write().await.push(discovery_info);
+                        }
+                        Err(e) => {
+                            tracing::warn!("[Discovery] cannot deserialize discovery info: {e:?}");
+                            data = vec![];
                         }
                     }
+                } else {
+                    data = vec![];
                 }
             }
         }
@@ -402,6 +439,22 @@ impl ZCommPy {
 
         let inner = Arc::new(inner);
         Ok(ZCommPy { inner })
+    }
+
+    pub fn zid<'p>(&'p self) -> String {
+        self.inner.get_zid().to_string()
+    }
+
+    pub async fn discovered<'p>(&'p self) -> Vec<DiscoveryInfoPy> {
+        let disc = self.inner.discovered().await;
+
+        let mut info = vec![];
+        Python::with_gil(|py| {
+            disc.iter()
+                .for_each(|value| info.push(DiscoveryInfoPy::from_rust(py, value)))
+        });
+
+        info
     }
 
     pub fn start<'p>(&'p self) -> PyResult<()> {
@@ -519,9 +572,38 @@ enum SRCS {
     ANY = -2,
 }
 
+#[pyclass(subclass)]
+pub struct DiscoveryInfoPy {
+    #[pyo3(get, set)]
+    pub rank: Py<PyAny>,
+    #[pyo3(get, set)]
+    pub zid: Py<PyAny>,
+}
+
+#[pymethods]
+impl DiscoveryInfoPy {
+    fn __repr__(&self) -> String {
+        format!("DiscoveryInfoPy(rank:{}, zid:{})", self.rank, self.zid)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+}
+
+impl DiscoveryInfoPy {
+    pub fn from_rust(py: Python, value: &DiscoveryInfo) -> Self {
+        Self {
+            rank: value.rank.to_object(py),
+            zid: value.zid.to_object(py),
+        }
+    }
+}
+
 #[pymodule]
 fn zcomm(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ZCommDataPy>()?;
+    m.add_class::<DiscoveryInfoPy>()?;
     m.add_class::<ZCommPy>()?;
     m.add_class::<TAGS>()?;
     m.add_class::<SRCS>()?;

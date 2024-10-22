@@ -47,7 +47,7 @@ def run(
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
 
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : []}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "messages_size" : {"sent" : [], "received" : []}, "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [1/n_workers]*n_workers
 
         X_cv, y_cv = dataset_util.load_validation_data()
@@ -75,10 +75,10 @@ def run(
     if rank != 0:
         model.set_weights(weights)
 
-    epoch_start = time.time()
+    start = time.time()
     if rank == 0:
         exited_workers = 0
-        latest_tag = 0
+        epoch_start = time.time()
         for batch in range(total_n_batches*epochs):
 
             grads = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
@@ -86,12 +86,7 @@ def run(
             source = status.Get_source()
             tag = status.Get_tag()
 
-            if latest_tag < tag+1:
-                latest_tag = tag+1
-
-            behind_penalty = (tag+1 / latest_tag)
-
-            grads = [grad*node_weights[source-1]*behind_penalty for grad in grads] 
+            grads = [grad*node_weights[source-1] for grad in grads] 
 
             optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
@@ -116,7 +111,10 @@ def run(
 
                 results["acc"].append(val_acc)
                 results["f1"].append(val_f1)
-                results["mcc"].append(val_mcc)                
+                results["mcc"].append(val_mcc)           
+                results["times"]["global_times"].append(time.time() - start)
+                results["times"]["epochs"].append(time.time() - epoch_start)
+
                 print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f" %(val_f1, val_mcc, val_acc))
                 patience_buffer = patience_buffer[1:]
                 patience_buffer.append(val_mcc)
@@ -131,7 +129,9 @@ def run(
 
                 if val_mcc > best_mcc:
                     best_weights = model.get_weights()
-            
+
+                epoch_start = time.time()
+
     else:
         for batch in range(total_n_batches*epochs):
 
