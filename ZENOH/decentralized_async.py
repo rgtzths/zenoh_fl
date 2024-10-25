@@ -39,7 +39,7 @@ async def run(
     dataset = dataset_util.name
     tf.keras.utils.set_random_seed(dataset_util.seed)
     patience_buffer = [-1]*patience
-
+    model_weights = None
 
     comm = await ZCommPy.new(rank, n_workers, locator)
     comm.start()
@@ -49,10 +49,13 @@ async def run(
     logging.info(f'[RANK: {rank}] Nodes up!')
 
     if rank == 0:
-        print("Running decentralized async")
-        print(f"Dataset: {dataset}")
-        print(f"Epochs: {global_epochs}")
-        print(f"Batch size: {batch_size}")
+        logging.info("Running decentralized async")
+        logging.info(f"Dataset: {dataset}")
+        logging.info(f"Learning rate: {learning_rate}")
+        logging.info(f"Global epochs: {global_epochs}")
+        logging.info(f"Local epochs: {local_epochs}")
+        logging.info(f"Batch size: {batch_size}")
+        logging.info(f"Alpha: {alpha}")
 
     output = f"{output}/{dataset}/{dataset_util.seed}/zenoh/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}_{batch_size}"
     output = pathlib.Path(output)
@@ -65,9 +68,6 @@ async def run(
         loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
-
-    model_weights = None
-
 
     '''
     Initial configuration, the parameter server receives the amount of 
@@ -94,10 +94,10 @@ async def run(
     '''
     Parameter server shares its values so every worker starts from the same point.
     '''
-    model_weights = pickle.loads( (await comm.bcast(data=pickle.dumps(model_weights), root=0, tag=-10)).data)
+    message = await comm.bcast(data=pickle.dumps(model_weights), root=0, tag=-10)
 
     if rank != 0:
-        model.set_weights(model_weights)
+        model.set_weights(pickle.loads(message.data))
 
     '''
     Training starts.
@@ -113,7 +113,7 @@ async def run(
             if epoch % n_workers == 0:
                 logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (epoch//n_workers+1, time.time() - start))
 
-            data = await comm.recv(src=-2, tag=epoch//n_workers)
+            data = await comm.recv(src=-2, tag=-2)
 
             for source, message in data.items():
                 weights = pickle.loads(message.data)
@@ -125,7 +125,6 @@ async def run(
 
                 await comm.send(dest=source, tag=message.tag, data=pickle.dumps(weight_diffs))
                 await comm.send(dest=source, tag=message.tag, data=pickle.dumps(stop))
-
 
             if stop:
                 exited_workers +=1
@@ -145,6 +144,7 @@ async def run(
                 results["mcc"].append(val_mcc)
                 results["times"]["global_times"].append(time.time() - start)
                 results["times"]["epochs"].append(time.time() - epoch_start)
+
                 patience_buffer = patience_buffer[1:]
                 patience_buffer.append(val_mcc)
 
@@ -157,8 +157,6 @@ async def run(
 
                 if val_mcc > early_stop or p_stop:
                     stop = True
-                epoch_start = time.time()
-
     else:
         for global_epoch in range(global_epochs):
             epoch_start = time.time()

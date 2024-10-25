@@ -36,15 +36,16 @@ async def run(
 ):
 
     stop = False
+    model_weights = None
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
     tf.keras.utils.set_random_seed(dataset_util.seed)
 
     if rank == 0:
-        print("Running decentralized sync")
-        print(f"Dataset: {dataset}")
-        print(f"Epochs: {global_epochs}")
-        print(f"Batch size: {batch_size}")
+        logging.info("Running decentralized sync")
+        logging.info(f"Dataset: {dataset}")
+        logging.info(f"Epochs: {global_epochs}")
+        logging.info(f"Batch size: {batch_size}")
 
     output = f"{output}/{dataset}/{dataset_util.seed}/zenoh/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}_{batch_size}"
     output = pathlib.Path(output)
@@ -57,7 +58,6 @@ async def run(
         loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
-    model_weights = None
 
     comm = await ZCommPy.new(rank, n_workers, locator)
     comm.start()
@@ -67,6 +67,7 @@ async def run(
     logging.info(f'[RANK: {rank}] Nodes up!')
     
     start = time.time()
+
     if rank == 0:
         results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [1/n_workers]*n_workers
@@ -82,23 +83,23 @@ async def run(
 
         train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
 
-    model_weights = pickle.loads( (await comm.bcast(data=pickle.dumps(model_weights), root=0, tag=-10)).data)
+    message = await comm.bcast(data=pickle.dumps(model_weights), root=0, tag=-10)
 
     if rank != 0:
-        model.set_weights(model_weights)
+        model.set_weights(pickle.loads(message.data))
 
     for global_epoch in range(global_epochs):
-        epoch_start = time.time()
-
         avg_weights = []
+        epoch_start = time.time()
 
         if rank == 0:
 
             logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (global_epoch+1, time.time() - start))
-            for worker in range(1, n_workers+1):
+            for _ in range(n_workers):
                 data = await comm.recv(src=-2, tag=global_epoch)
                 for src, message in data.items():
                     weights = pickle.loads(message.data)
+
                     if not avg_weights:
                         avg_weights = [ weight * node_weights[src-1] for weight in weights]
                     else:
@@ -108,21 +109,24 @@ async def run(
             train_time = time.time()
             model.fit(train_dataset, epochs=local_epochs, verbose=0)
             results["times"]["train"].append(time.time() - train_time)
+
             await comm.send(dest=0, tag=global_epoch, data=pickle.dumps(model.get_weights()))
 
         message = await comm.bcast(data=pickle.dumps(avg_weights), root=0, tag=global_epoch)
-        model.set_weights(pickle.loads(message.data))
+        if rank != 0:
+            avg_weights = pickle.loads(message.data)
             
         message = await comm.bcast(data=pickle.dumps(stop), root=0, tag=global_epoch)
-        stop = pickle.loads(message.data)
+        if rank != 0:
+            stop = pickle.loads(message.data)
 
+        model.set_weights(avg_weights)
+        
         if rank != 0:
             results["times"]["epochs"].append(time.time() - epoch_start)
             if stop:
                 break
         else:
-            
-
             predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
             val_f1 = f1_score(y_cv, predictions, average="macro")
             val_mcc = matthews_corrcoef(y_cv, predictions)

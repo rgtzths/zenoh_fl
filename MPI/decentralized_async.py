@@ -1,6 +1,7 @@
 import json
 import pathlib
 import time
+import logging
 import numpy as np
 import tensorflow as tf
 from mpi4py import MPI
@@ -8,6 +9,7 @@ from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
 import pickle
 import sys
 
+logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)
 
 
 def run(
@@ -28,6 +30,7 @@ def run(
     rank = comm.Get_rank()
     n_workers = comm.Get_size()-1
     status = MPI.Status()
+
     stop = False
     dataset = dataset_util.name
     patience_buffer = [-1]*patience
@@ -35,13 +38,13 @@ def run(
     tf.keras.utils.set_random_seed(dataset_util.seed)
 
     if rank == 0:
-        print("Running decentralized async")
-        print(f"Dataset: {dataset}")
-        print(f"Learning rate: {learning_rate}")
-        print(f"Global epochs: {global_epochs}")
-        print(f"Local epochs: {local_epochs}")
-        print(f"Batch size: {batch_size}")
-        print(f"Alpha: {alpha}")
+        logging.info("Running decentralized async")
+        logging.info(f"Dataset: {dataset}")
+        logging.info(f"Learning rate: {learning_rate}")
+        logging.info(f"Global epochs: {global_epochs}")
+        logging.info(f"Local epochs: {local_epochs}")
+        logging.info(f"Batch size: {batch_size}")
+        logging.info(f"Alpha: {alpha}")
 
     output = f"{output}/{dataset}/{dataset_util.seed}/mpi/decentralized_async/{n_workers}_{global_epochs}_{local_epochs}_{alpha}_{batch_size}"
     output = pathlib.Path(output)
@@ -63,7 +66,7 @@ def run(
     weighted average of their contributions.
     '''
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [], "messages_size" : {"sent" : [], "received" : []}, "times" : {"epochs" : [], "global_times" : []}}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
 
         X_cv, y_cv = dataset_util.load_validation_data()
 
@@ -99,7 +102,7 @@ def run(
 
             if epoch % n_workers == 0:
 
-                print("\nStart of epoch %d, elapsed time %5.1fs" % (epoch//n_workers+1, time.time() - start))
+                logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (epoch//n_workers+1, time.time() - start))
             
             #This needs to be changed to the correct formula
             
@@ -140,7 +143,7 @@ def run(
                 patience_buffer = patience_buffer[1:]
                 patience_buffer.append(val_mcc)
 
-                print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f"  %(val_f1, val_mcc, val_acc))
+                logging.info("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f"  %(val_f1, val_mcc, val_acc))
 
                 p_stop = True
                 for value in patience_buffer[1:]:
@@ -149,6 +152,7 @@ def run(
 
                 if val_mcc > early_stop or p_stop:
                     stop = True
+
     else:
         for global_epoch in range(global_epochs):
             epoch_start = time.time()

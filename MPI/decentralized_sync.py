@@ -1,12 +1,16 @@
 import json
 import pathlib
 import time
+import logging
 import numpy as np
 import tensorflow as tf
 from mpi4py import MPI
 from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
 import pickle
 import sys
+
+
+logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.DEBUG)
 
 
 def run(
@@ -35,12 +39,12 @@ def run(
     patience_buffer = [-1]*patience
 
     if rank == 0:
-        print("Running decentralized sync")
-        print(f"Dataset: {dataset}")
-        print(f"Learning rate: {learning_rate}")
-        print(f"Global epochs: {global_epochs}")
-        print(f"Local epochs: {local_epochs}")
-        print(f"Batch size: {batch_size}")
+        logging.info("Running decentralized sync")
+        logging.info(f"Dataset: {dataset}")
+        logging.info(f"Learning rate: {learning_rate}")
+        logging.info(f"Global epochs: {global_epochs}")
+        logging.info(f"Local epochs: {local_epochs}")
+        logging.info(f"Batch size: {batch_size}")
 
     output = f"{output}/{dataset}/{dataset_util.seed}/mpi/decentralized_sync/{n_workers}_{global_epochs}_{local_epochs}_{batch_size}"
     output = pathlib.Path(output)
@@ -57,7 +61,7 @@ def run(
     start = time.time()
 
     if rank == 0:
-        results = {"acc" : [], "mcc" : [], "f1" : [], "messages_size" : {"sent" : [], "received" : []}, "times" : {"epochs" : [], "global_times" : []}}
+        results = {"acc" : [], "mcc" : [], "f1" : [], "times" : {"epochs" : [], "global_times" : []}}
         node_weights = [1/n_workers]*n_workers
         X_cv, y_cv = dataset_util.load_validation_data()
 
@@ -82,7 +86,7 @@ def run(
         epoch_start = time.time()
 
         if rank == 0:
-            print("\nStart of epoch %d, elapsed time %5.1fs" % (global_epoch+1, time.time() - start))
+            logging.info("\nStart of epoch %d, elapsed time %5.1fs" % (global_epoch+1, time.time() - start))
 
             for _ in range(n_workers):
                 weights = comm.recv(source=MPI.ANY_SOURCE, tag=global_epoch, status=status)
@@ -105,15 +109,13 @@ def run(
 
         stop = comm.bcast(stop, root=0)
         
+        model.set_weights(avg_weights)
+
         if rank != 0:
-            model.set_weights(avg_weights)
             results["times"]["epochs"].append(time.time() - epoch_start)
             if stop:
                 break
         else:
-
-            model.set_weights(avg_weights)
-
             predictions = [np.argmax(x) for x in model.predict(val_dataset, verbose=0)]
             val_f1 = f1_score(y_cv, predictions, average="macro")
             val_mcc = matthews_corrcoef(y_cv, predictions)
@@ -124,9 +126,10 @@ def run(
             results["mcc"].append(val_mcc)
             results["times"]["global_times"].append(time.time() - start)
             results["times"]["epochs"].append(time.time() - epoch_start)
+
             patience_buffer = patience_buffer[1:]
             patience_buffer.append(val_mcc)
-            print("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f "  %(val_f1, val_mcc, val_acc))
+            logging.info("- val_f1: %6.3f - val_mcc %6.3f - val_acc %6.3f "  %(val_f1, val_mcc, val_acc))
             if stop:
                 break
             p_stop = True

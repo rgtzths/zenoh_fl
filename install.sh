@@ -6,7 +6,7 @@ ssh worker$i
 
 sudo apt update
 sudo apt upgrade -y
-sudo apt -y install openmpi-bin libopenmpi-dev libblas-dev python-is-python3 python3-pip python3.12-venv zip
+sudo apt -y install openmpi-bin libopenmpi-dev libblas-dev python-is-python3 python3-pip python3.12-venv zip swig
 unzip zenof_fl.zip
 cd zenoh_fl
 python -m venv venv
