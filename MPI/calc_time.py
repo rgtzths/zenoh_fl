@@ -38,7 +38,7 @@ for dataset in config.DATASETS:
         '''
         Model size
         '''
-        print(f"Size of the model: {sys.getsizeof(pickle.dumps(model.get_weights()))*0.000001:.2f}")
+        print(f"Size of the model: {sys.getsizeof(pickle.dumps(model.get_weights()))}")
         
         '''
         Measuring comm time
@@ -50,3 +50,4 @@ for dataset in config.DATASETS:
     else:
         model = comm.recv(source=0, tag=1)
 
+    break

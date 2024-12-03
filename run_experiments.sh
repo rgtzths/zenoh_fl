@@ -11,18 +11,21 @@ datasets=("IOT_DNL" "Slicing5G" "UNSW" "NetSlice5G")
 #datasets=("NetSlice5G")
 
 ##Sending models example
+
 #ZENOH
-for i in $(seq 1 $num_workers)
-do
-    ssh worker$i "cd zenoh_fl; rm -r ZENOH; rm -r MPI;"
-    scp -r ZENOH atnoguser@worker$i:~/zenoh_fl/
-    scp -r MPI atnoguser@worker$i:~/zenoh_fl/
-    ssh worker$i "cd zenoh_fl; source venv/bin/activate; nohup python3 ZENOH/calc_time.py -nw ${num_workers} -wid ${i}  > output.log 2>&1 &"
-done
+#for i in $(seq 1 $num_workers)
+#do
+#    #ssh worker$i "cd zenoh_fl; rm -r ZENOH; rm -r MPI;"
+#    #scp -r ZENOH atnoguser@worker$i:~/zenoh_fl/
+#    #scp -r MPI atnoguser@worker$i:~/zenoh_fl/
+#    #ssh worker$i "cd zenoh_fl; source venv/bin/activate; nohup python3 ZENOH/calc_time.py -nw ${num_workers} -wid ${i}  > output.log 2>&1 &"
+#done
 
-python3 ZENOH/calc_time.py -nw ${num_workers} -wid 0
-
-## Run MPI
+#python3 ZENOH/calc_time.py -nw ${num_workers} -wid 0
+#
+#sleep 10
+#
+### Run MPI
 mpirun -np $((num_workers + 1)) -hostfile MPI/host_file bash MPI/run.sh
 
 ##Helper commands for setting up for the first time
@@ -30,7 +33,8 @@ mpirun -np $((num_workers + 1)) -hostfile MPI/host_file bash MPI/run.sh
 #Ensures every worker can be accessed with priv/pub key
 #for i in $(seq 1 $num_workers)
 #do
-#    ssh-copy-id worker$i
+#    #ssh-copy-id worker$i
+#    ssh worker$i
 #done
 
 #Kills any program lauched using the federated_learning script (for Zenoh)

@@ -56,7 +56,7 @@ async def run():
             '''
             Model size
             '''
-            print(f"Size of the model: {sys.getsizeof(pickle.dumps(model.get_weights()))*0.000001:.2f}")
+            print(f"Size of the model: {sys.getsizeof(pickle.dumps(model.get_weights()))}")
             
             '''
             Measuring comm time
@@ -69,5 +69,5 @@ async def run():
             data = await comm.recv(src=0, tag=-10)
             for source, message in data.items():
                 model = pickle.loads(message.data)
-
+        break
 asyncio.run(run())
