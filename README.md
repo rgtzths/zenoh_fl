@@ -1,11 +1,11 @@
 # zenoh_fl
  
-## Struct ure
+## Structure
 
 This repository has the following structure:
 ```
 ├── MPI/
-├── [DATASET]/
+├── datasets/
 ├── config.py
 ├── data_division.py
 ├── federated_learning.py
