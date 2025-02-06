@@ -1,4 +1,7 @@
 # zenoh_fl
+
+This repository is the code base of the paper titled "Leveraging decentralized communication for privacy-preserving federated learning in 6G Networks".
+If the code is used for any other project please reference the work as described in the end of the readme.
  
 ## Structure
 
@@ -67,6 +70,52 @@ Then perform preprocessing and division.
 Finally it will run the training for zenoh and mpi.
 
 ## Results
+
+### Execution time
+| **Performance** | | **Execution time (seconds)** | | |
+|---|---|---| ---- |--- |
+||Synchronous|| Asynchronous | |
+| MCC | MPI | Zenoh | MPI | Zenoh |
+| | | **Slicing5G** | | |
+| 0.50 | --   | --   | --   | --   |      
+| 0.60 | --   | --   | --   | --   |     
+| 0.70 | 11.5 | 10.9 | 10.9 | 10.6 |      
+| 0.80 | 12.4 | 11.9 | 11.8 | --   |      
+| 0.90 | 13.4 | 13.0 | 13.7 | 11.6 |      
+| 0.99 | 35.2 | 36.7 | 34.5 | 36.3 |    
+| | | **NetSlice5G** | | |
+| 0.50 | 5.0  | 6.3  | 3.0 | 2.0  |      
+| 0.60 | 5.2  | 6.5  | 3.3 | 2.3  |     
+| 0.70 | 6.0  | 7.4  | 4.2 | 3.3  |      
+| 0.80 | 6.7  | 8.3  | 5.5 | 5.1  |      
+| 0.90 | 8.6  | 10.6 | 7.2 | 7.1  |      
+| 0.99 | 10.6 | 12.8 | 9.1 | 9.6  | 
+| | | **IOT_DNL** | | |
+| 0.50 | --   | --   | --   | --   |      
+| 0.60 | --   | --   | --   | --   |     
+| 0.70 | 10.5 | 9.8  | --   | --   |      
+| 0.80 | --   | --   | --   | --   |      
+| 0.90 | 11.7 | 11.1 | 6.5  | 5.6  |      
+| 0.99 | 24.8 | 25.0 | 24.3 | 24.9 | 
+| | | **UNSW** | | |
+| 0.50 | --   | --   | --   | --   |      
+| 0.60 | --   | --   | --   | --   |     
+| 0.70 | 24.3 | 25.4 | 19.9 | 21.0 |      
+| 0.80 | 37.7 | 39.4 | 46.4 | 49.4 |      
+| 0.90 | --   | --   | --   | --   |      
+| 0.99 | --   | --   | --   | --   | 
+
+## Paper reference
+
+Rafael Teixeira, Gabriele Baldoni, Mário Antunes, Diogo Gomes, Rui L. Aguiar,
+Leveraging decentralized communication for privacy-preserving federated learning in 6G Networks,
+Computer Communications,
+Volume 233,
+2025,
+108072,
+ISSN 0140-3664,
+https://doi.org/10.1016/j.comcom.2025.108072.
+(https://www.sciencedirect.com/science/article/pii/S0140366425000295)
 
 
 ## Authors
