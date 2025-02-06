@@ -84,9 +84,9 @@ class Slicing5G(Util):
                 # flatten layer
                 tf.keras.layers.Input(shape=(8,)),
                 # hidden layers
+                tf.keras.layers.Dense(16, activation='relu'),
                 tf.keras.layers.Dense(8, activation='relu'),
-                tf.keras.layers.Dense(4, activation='relu'),
-                tf.keras.layers.Dense(3, activation='tanh'),
+                tf.keras.layers.Dense(4, activation='tanh'),
                 # output layer
                 tf.keras.layers.Dense(3, activation="softmax")
             ])
