@@ -151,13 +151,9 @@ impl ZComm {
                 let src = data.src;
                 let tag = data.tag;
 
-                // let mut cv_guard = c_self.cv_map.write().await;
                 let mut data_guard = c_self.data.write().await;
                 let mut queue_guard = c_self.msg_queue.write().await;
-                // let cv = cv_guard
-                //     .get_mut(&src)
-                //     .map(|mut hm| hm.entry(tag).or_insert(Condvar::new()));
-                // this could be really be optimized with a Condvar
+
 
                 let local_data = data_guard
                     .entry(src)

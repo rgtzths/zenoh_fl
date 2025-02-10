@@ -4,18 +4,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.zcomm
-    # depends_on:
-    #   - worker1
-    #   - worker2
-    #   - worker3
-    #   - worker4
     image: zenohfl
     ports: 
       - "7447"
     environment:
        WORKERS: 8
        RANK: 0
-      #  RUST_LOG: zcomm=debug
     command: ["/root/zcomm/run-zcomm.sh"]
 
   worker1: 

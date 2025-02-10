@@ -34,7 +34,7 @@ For the main structure:
 - federated_learning.py is the main python executable responsible for lauching the experiments.
 - generate_table.py provides the script to extract the values presented in the tables
 - install.sh install the necessary ubunto packages, creates a python env, installs the python requirements, and compiles the zcomm PoC and installs it.
-- requirements.txt provides the requirements packages for pyhton.
+- requirements.txt provides the requirements packages for python.
 - run_experiments.sh provides an all in one script to run the same experiments as the ones performed in the paper
 - run.sh is the script used when running MPI in multiple machines as it launches a specific environment before running the federated_learning.py script.
 - Util.py contains a class which all datasets must inherit from.
