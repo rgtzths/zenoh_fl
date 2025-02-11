@@ -24,7 +24,6 @@ Build the Python Wheel **within** a Python virtual environment.
 ```bash
 $ python3 -m venv venv
 $ source venv/bin/activate
-(venv) $ git clone git@github.com:rgtzths/zenoh_fl.git
 (venv) $ cd zenoh_fl/zcomm
 (venv) $ pip3 install -r requirements-dev.txt
 (venv) $ maturin build --release
